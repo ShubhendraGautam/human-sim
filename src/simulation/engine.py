@@ -156,6 +156,9 @@ class Simulation:
         self._advance_pregnancies()
 
         self.world.rebuild_spatial_index(self.agents.values())
+        # Bonds are maintained after the index is current, so proximity is
+        # judged on where everyone actually is this tick.
+        self._advance_bonds()
         # Deaths and births changed the population, so the decision phase
         # needs a fresh ordering rather than the one shared above.
         actions = [
@@ -1367,6 +1370,45 @@ class Simulation:
             and not self._closely_related(agent, candidate)
             and self._age_fecundity(candidate) > 0.0
         )
+
+    def _advance_bonds(self) -> None:
+        """Refresh or end existing bonds.
+
+        A bond is not a contract that survives anything. Couples who stay
+        together keep it current; couples separated for long enough, or whose
+        remembered trust has soured, part.
+
+        Each bond is visited once, from the lower ID, so dissolving one cannot
+        disturb the iteration for its partner.
+        """
+        config = self.config
+        separation_limit = round(
+            config.bond_separation_years * config.ticks_per_year
+        )
+        dissolution_trust = config.bond_dissolution_trust
+        tick = self.tick
+        for agent in self._ordered_agents():
+            partner_id = agent.partner_id
+            if partner_id is None or partner_id < agent.id:
+                continue
+            partner = self.agents.get(partner_id)
+            if partner is None or partner.partner_id != agent.id:
+                self._dissolve_bond(agent, "bond_ended_death")
+                continue
+            if self._are_local(agent, partner):
+                agent.bond_last_together_tick = tick
+                partner.bond_last_together_tick = tick
+                continue
+            if tick - agent.bond_last_together_tick > separation_limit:
+                self._dissolve_bond(agent, "bond_ended_separation")
+                continue
+            view = self.relationships.view(
+                agent.relationship_slot,
+                partner_id,
+                tick,
+            )
+            if view is not None and view.trust < dissolution_trust:
+                self._dissolve_bond(agent, "bond_ended_distrust")
 
     def _resolve_courtships(
         self,

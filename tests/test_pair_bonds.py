@@ -216,6 +216,94 @@ class BondCleanupTests(unittest.TestCase):
         self.assertTrue(simulation._can_court(first, second))
 
 
+class BondMaintenanceTests(unittest.TestCase):
+    """A bond is kept up by proximity and trust, not granted permanently."""
+
+    def test_staying_together_keeps_the_bond_current(self) -> None:
+        simulation = couple_simulation()
+        first, second = simulation._ordered_agents()
+        simulation._bind_pair(first, second)
+        simulation.tick += 5
+
+        simulation._advance_bonds()
+
+        self.assertEqual(first.partner_id, second.id)
+        self.assertEqual(first.bond_last_together_tick, simulation.tick)
+        self.assertEqual(second.bond_last_together_tick, simulation.tick)
+
+    def test_prolonged_separation_ends_the_bond(self) -> None:
+        simulation = couple_simulation(bond_separation_years=1.0)
+        first, second = simulation._ordered_agents()
+        simulation._bind_pair(first, second)
+        second.x, second.y = 3, 3
+        simulation.world.rebuild_spatial_index(simulation.agents.values())
+        simulation.tick += simulation.config.ticks_per_year + 1
+
+        simulation._advance_bonds()
+
+        self.assertIsNone(first.partner_id)
+        self.assertIsNone(second.partner_id)
+        observation.validate_state(simulation)
+
+    def test_brief_separation_does_not_end_the_bond(self) -> None:
+        simulation = couple_simulation(bond_separation_years=5.0)
+        first, second = simulation._ordered_agents()
+        simulation._bind_pair(first, second)
+        second.x, second.y = 3, 3
+        simulation.world.rebuild_spatial_index(simulation.agents.values())
+        simulation.tick += 2
+
+        simulation._advance_bonds()
+
+        self.assertEqual(first.partner_id, second.id)
+
+    def test_soured_trust_ends_the_bond(self) -> None:
+        simulation = couple_simulation(bond_dissolution_trust=0.5)
+        first, second = simulation._ordered_agents()
+        simulation._bind_pair(first, second)
+        second.x, second.y = 3, 3
+        simulation.world.rebuild_spatial_index(simulation.agents.values())
+        # Trust starts neutral, which is already below this threshold.
+        simulation.tick += 1
+
+        simulation._advance_bonds()
+
+        self.assertIsNone(first.partner_id)
+        observation.validate_state(simulation)
+
+    def test_dissolution_emits_a_reason(self) -> None:
+        simulation = couple_simulation(bond_separation_years=1.0)
+        first, second = simulation._ordered_agents()
+        simulation._bind_pair(first, second)
+        second.x, second.y = 3, 3
+        simulation.world.rebuild_spatial_index(simulation.agents.values())
+        simulation.tick += simulation.config.ticks_per_year + 1
+
+        simulation._advance_bonds()
+
+        kinds = [event.kind for event in simulation.events]
+        self.assertIn("bond_ended_separation", kinds)
+
+    def test_maintenance_is_independent_of_dictionary_order(self) -> None:
+        def run(reverse: bool):
+            simulation = couple_simulation(bond_separation_years=1.0)
+            first, second = simulation._ordered_agents()
+            simulation._bind_pair(first, second)
+            second.x, second.y = 3, 3
+            simulation.world.rebuild_spatial_index(
+                simulation.agents.values()
+            )
+            simulation.tick += simulation.config.ticks_per_year + 1
+            if reverse:
+                simulation.agents = dict(
+                    reversed(tuple(simulation.agents.items()))
+                )
+            simulation._advance_bonds()
+            return simulation.state_digest()
+
+        self.assertEqual(run(False), run(True))
+
+
 class CoMovementTests(unittest.TestCase):
     def test_step_toward_closes_distance_by_one_cell(self) -> None:
         simulation = couple_simulation()
