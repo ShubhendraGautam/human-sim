@@ -124,6 +124,37 @@ python3 -m pip install -e .
 human-sim --ticks 120 --seed 42
 ```
 
+## Run Lab UI
+
+The first web laboratory is available in `ui/`. It observes the simulation
+through a separate, versioned service boundary; browser controls can advance
+time and recreate starting conditions but cannot change an agent's decisions
+or causal state.
+
+Start the optional API:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-api.txt
+.venv/bin/python -m src.human_sim_service.api
+```
+
+In another terminal, using Node.js 24 or newer:
+
+```bash
+cd ui
+npm ci
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. Add `?demo=1` only when an explicitly labelled
+synthetic interface preview is desired. The normal UI connects to the real
+engine service.
+
+See [ui/README.md](ui/README.md) for frontend commands and
+[docs/ui-architecture.md](docs/ui-architecture.md) for the service contracts,
+scaling strategy, worker-process milestone, and future native-backend seam.
+
 ## Test
 
 The test suite uses the Python standard library:

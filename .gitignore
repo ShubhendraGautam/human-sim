@@ -41,3 +41,12 @@ docker-compose.override.yml
 # Environment
 .env
 .env.local
+
+# Web UI
+ui/node_modules/
+ui/dist/
+ui/coverage/
+
+# Tests
+.pytest_cache/
+.coverage
