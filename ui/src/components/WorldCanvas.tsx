@@ -140,6 +140,7 @@ export function WorldCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerRef = useRef<PointerOrigin | null>(null);
+  const paintRef = useRef<number | null>(null);
   const [size, setSize] = useState({ width: 800, height: 520 });
   const [camera, setCamera] = useState<Camera>({
     zoom: 1,
@@ -179,146 +180,108 @@ export function WorldCanvas({
     if (canvas === null) {
       return;
     }
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(size.width * pixelRatio);
-    canvas.height = Math.round(size.height * pixelRatio);
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
     const context = canvas.getContext("2d", { alpha: false });
     if (context === null) {
       return;
     }
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    context.fillStyle = "#081111";
-    context.fillRect(0, 0, size.width, size.height);
 
-    const projection = projectWorld(
-      size.width,
-      size.height,
-      manifest.world.width,
-      manifest.world.height,
-      camera,
-    );
-    context.save();
-    context.shadowColor = "rgba(0, 0, 0, 0.42)";
-    context.shadowBlur = 24;
-    context.shadowOffsetY = 12;
-    context.fillStyle = "#0d282d";
-    context.fillRect(
-      projection.originX,
-      projection.originY,
-      projection.width,
-      projection.height,
-    );
-    context.restore();
-
-    context.save();
-    context.beginPath();
-    context.rect(
-      projection.originX,
-      projection.originY,
-      projection.width,
-      projection.height,
-    );
-    context.clip();
-    context.imageSmoothingEnabled = false;
-    context.drawImage(
-      worldRaster,
-      projection.originX,
-      projection.originY,
-      projection.width,
-      projection.height,
-    );
-
-    const cellScale = projection.scale;
-    if (layers.food && frame.resources !== undefined) {
-      const values = frame.resources.food;
-      for (let index = 0; index < values.length; index += 1) {
-        const capacity = manifest.world.food_capacity[index] ?? 0;
-        if (capacity <= 0) {
-          continue;
-        }
-        const fraction = clamp((values[index] ?? 0) / capacity, 0, 1);
-        if (fraction < 0.08) {
-          continue;
-        }
-        const x = index % manifest.world.width;
-        const y = Math.floor(index / manifest.world.width);
-        context.fillStyle = `rgba(116, 205, 119, ${0.06 + fraction * 0.25})`;
-        context.fillRect(
-          projection.originX + x * cellScale,
-          projection.originY + y * cellScale,
-          Math.ceil(cellScale),
-          Math.ceil(cellScale),
-        );
+    const draw = () => {
+      paintRef.current = null;
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const targetWidth = Math.round(size.width * pixelRatio);
+      const targetHeight = Math.round(size.height * pixelRatio);
+      // Assigning width or height resets the backing store and all context
+      // state even when the value is unchanged, so doing it every frame
+      // blanked the canvas immediately before each repaint. That blank-then-
+      // paint sequence is what read as a flicker on every tick.
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        canvas.style.width = `${size.width}px`;
+        canvas.style.height = `${size.height}px`;
       }
-    }
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.fillStyle = "#081111";
+      context.fillRect(0, 0, size.width, size.height);
 
-    if (layers.materials && frame.resources !== undefined) {
-      const values = frame.resources.materials;
-      for (let index = 0; index < values.length; index += 1) {
-        const capacity = manifest.world.material_capacity[index] ?? 0;
-        if (capacity <= 0) {
-          continue;
-        }
-        const fraction = clamp((values[index] ?? 0) / capacity, 0, 1);
-        if (fraction < 0.12) {
-          continue;
-        }
-        const x = index % manifest.world.width;
-        const y = Math.floor(index / manifest.world.width);
-        const radius = Math.max(0.55, cellScale * 0.11 * fraction);
-        context.fillStyle = `rgba(220, 169, 116, ${0.18 + fraction * 0.35})`;
-        context.beginPath();
-        context.arc(
-          projection.originX + (x + 0.5) * cellScale,
-          projection.originY + (y + 0.5) * cellScale,
-          radius,
-          0,
-          Math.PI * 2,
-        );
-        context.fill();
-      }
-    }
+      const projection = projectWorld(
+        size.width,
+        size.height,
+        manifest.world.width,
+        manifest.world.height,
+        camera,
+      );
+      context.save();
+      context.shadowColor = "rgba(0, 0, 0, 0.42)";
+      context.shadowBlur = 24;
+      context.shadowOffsetY = 12;
+      context.fillStyle = "#0d282d";
+      context.fillRect(
+        projection.originX,
+        projection.originY,
+        projection.width,
+        projection.height,
+      );
+      context.restore();
 
-    if (layers.countries && camera.zoom >= 0.85) {
-      context.font = "600 11px Inter, system-ui, sans-serif";
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      for (const country of manifest.scenario.countries) {
-        const [x, y, width, height] = country.region;
-        context.fillStyle = "rgba(235, 241, 232, 0.58)";
-        context.fillText(
-          country.name.toUpperCase(),
-          projection.originX + (x + width / 2) * cellScale,
-          projection.originY + (y + height / 2) * cellScale,
-        );
-      }
-    }
+      context.save();
+      context.beginPath();
+      context.rect(
+        projection.originX,
+        projection.originY,
+        projection.width,
+        projection.height,
+      );
+      context.clip();
+      context.imageSmoothingEnabled = false;
+      context.drawImage(
+        worldRaster,
+        projection.originX,
+        projection.originY,
+        projection.width,
+        projection.height,
+      );
 
-    if (layers.agents) {
-      const radius = clamp(cellScale * 0.18, 1.25, 3.1);
-      const buckets = new Map<string, number[]>();
-      for (let index = 0; index < frame.agents.id.length; index += 1) {
-        const color = agentColor(frame, index, layers.colorMode);
-        const bucket = buckets.get(color);
-        if (bucket === undefined) {
-          buckets.set(color, [index]);
-        } else {
-          bucket.push(index);
-        }
-      }
-      context.globalAlpha = 0.93;
-      for (const [color, indices] of buckets) {
-        context.fillStyle = color;
-        context.beginPath();
-        for (const index of indices) {
-          const x = frame.agents.x[index] ?? 0;
-          const y = frame.agents.y[index] ?? 0;
-          context.moveTo(
-            projection.originX + (x + 0.5) * cellScale + radius,
-            projection.originY + (y + 0.5) * cellScale,
+      const cellScale = projection.scale;
+      if (layers.food && frame.resources !== undefined) {
+        const values = frame.resources.food;
+        for (let index = 0; index < values.length; index += 1) {
+          const capacity = manifest.world.food_capacity[index] ?? 0;
+          if (capacity <= 0) {
+            continue;
+          }
+          const fraction = clamp((values[index] ?? 0) / capacity, 0, 1);
+          if (fraction < 0.08) {
+            continue;
+          }
+          const x = index % manifest.world.width;
+          const y = Math.floor(index / manifest.world.width);
+          context.fillStyle = `rgba(116, 205, 119, ${0.06 + fraction * 0.25})`;
+          context.fillRect(
+            projection.originX + x * cellScale,
+            projection.originY + y * cellScale,
+            Math.ceil(cellScale),
+            Math.ceil(cellScale),
           );
+        }
+      }
+
+      if (layers.materials && frame.resources !== undefined) {
+        const values = frame.resources.materials;
+        for (let index = 0; index < values.length; index += 1) {
+          const capacity = manifest.world.material_capacity[index] ?? 0;
+          if (capacity <= 0) {
+            continue;
+          }
+          const fraction = clamp((values[index] ?? 0) / capacity, 0, 1);
+          if (fraction < 0.12) {
+            continue;
+          }
+          const x = index % manifest.world.width;
+          const y = Math.floor(index / manifest.world.width);
+          const radius = Math.max(0.55, cellScale * 0.11 * fraction);
+          context.fillStyle = `rgba(220, 169, 116, ${0.18 + fraction * 0.35})`;
+          context.beginPath();
           context.arc(
             projection.originX + (x + 0.5) * cellScale,
             projection.originY + (y + 0.5) * cellScale,
@@ -326,85 +289,146 @@ export function WorldCanvas({
             0,
             Math.PI * 2,
           );
+          context.fill();
         }
-        context.fill();
       }
-      context.globalAlpha = 1;
 
-      if (layers.disease) {
-        context.strokeStyle = "#ff786f";
-        context.lineWidth = 1.2;
-        context.beginPath();
+      if (layers.countries && camera.zoom >= 0.85) {
+        context.font = "600 11px Inter, system-ui, sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        for (const country of manifest.scenario.countries) {
+          const [x, y, width, height] = country.region;
+          context.fillStyle = "rgba(235, 241, 232, 0.58)";
+          context.fillText(
+            country.name.toUpperCase(),
+            projection.originX + (x + width / 2) * cellScale,
+            projection.originY + (y + height / 2) * cellScale,
+          );
+        }
+      }
+
+      if (layers.agents) {
+        const radius = clamp(cellScale * 0.18, 1.25, 3.1);
+        const buckets = new Map<string, number[]>();
         for (let index = 0; index < frame.agents.id.length; index += 1) {
-          if (frame.agents.infection_stage[index] !== "infectious") {
-            continue;
+          const color = agentColor(frame, index, layers.colorMode);
+          const bucket = buckets.get(color);
+          if (bucket === undefined) {
+            buckets.set(color, [index]);
+          } else {
+            bucket.push(index);
           }
-          const x = frame.agents.x[index] ?? 0;
-          const y = frame.agents.y[index] ?? 0;
-          context.moveTo(
-            projection.originX + (x + 0.5) * cellScale + radius + 2,
-            projection.originY + (y + 0.5) * cellScale,
-          );
-          context.arc(
-            projection.originX + (x + 0.5) * cellScale,
-            projection.originY + (y + 0.5) * cellScale,
-            radius + 2,
-            0,
-            Math.PI * 2,
-          );
         }
-        context.stroke();
+        context.globalAlpha = 0.93;
+        for (const [color, indices] of buckets) {
+          context.fillStyle = color;
+          context.beginPath();
+          for (const index of indices) {
+            const x = frame.agents.x[index] ?? 0;
+            const y = frame.agents.y[index] ?? 0;
+            context.moveTo(
+              projection.originX + (x + 0.5) * cellScale + radius,
+              projection.originY + (y + 0.5) * cellScale,
+            );
+            context.arc(
+              projection.originX + (x + 0.5) * cellScale,
+              projection.originY + (y + 0.5) * cellScale,
+              radius,
+              0,
+              Math.PI * 2,
+            );
+          }
+          context.fill();
+        }
+        context.globalAlpha = 1;
+
+        if (layers.disease) {
+          context.strokeStyle = "#ff786f";
+          context.lineWidth = 1.2;
+          context.beginPath();
+          for (let index = 0; index < frame.agents.id.length; index += 1) {
+            if (frame.agents.infection_stage[index] !== "infectious") {
+              continue;
+            }
+            const x = frame.agents.x[index] ?? 0;
+            const y = frame.agents.y[index] ?? 0;
+            context.moveTo(
+              projection.originX + (x + 0.5) * cellScale + radius + 2,
+              projection.originY + (y + 0.5) * cellScale,
+            );
+            context.arc(
+              projection.originX + (x + 0.5) * cellScale,
+              projection.originY + (y + 0.5) * cellScale,
+              radius + 2,
+              0,
+              Math.PI * 2,
+            );
+          }
+          context.stroke();
+        }
+
+        const selectedIndex =
+          selectedAgentId === null
+            ? -1
+            : frame.agents.id.indexOf(selectedAgentId);
+        if (selectedIndex >= 0) {
+          const x = frame.agents.x[selectedIndex] ?? 0;
+          const y = frame.agents.y[selectedIndex] ?? 0;
+          const screenX = projection.originX + (x + 0.5) * cellScale;
+          const screenY = projection.originY + (y + 0.5) * cellScale;
+          context.strokeStyle = "#fff6df";
+          context.lineWidth = 1.8;
+          context.beginPath();
+          context.arc(screenX, screenY, radius + 4.5, 0, Math.PI * 2);
+          context.stroke();
+          context.fillStyle = "#fff6df";
+          context.beginPath();
+          context.moveTo(screenX, screenY - radius - 6);
+          context.lineTo(screenX - 2.6, screenY - radius - 10);
+          context.lineTo(screenX + 2.6, screenY - radius - 10);
+          context.closePath();
+          context.fill();
+        }
       }
+      context.restore();
 
-      const selectedIndex =
-        selectedAgentId === null
-          ? -1
-          : frame.agents.id.indexOf(selectedAgentId);
-      if (selectedIndex >= 0) {
-        const x = frame.agents.x[selectedIndex] ?? 0;
-        const y = frame.agents.y[selectedIndex] ?? 0;
-        const screenX = projection.originX + (x + 0.5) * cellScale;
-        const screenY = projection.originY + (y + 0.5) * cellScale;
-        context.strokeStyle = "#fff6df";
-        context.lineWidth = 1.8;
-        context.beginPath();
-        context.arc(screenX, screenY, radius + 4.5, 0, Math.PI * 2);
-        context.stroke();
-        context.fillStyle = "#fff6df";
-        context.beginPath();
-        context.moveTo(screenX, screenY - radius - 6);
-        context.lineTo(screenX - 2.6, screenY - radius - 10);
-        context.lineTo(screenX + 2.6, screenY - radius - 10);
-        context.closePath();
-        context.fill();
+      context.strokeStyle = "rgba(217, 232, 222, 0.15)";
+      context.lineWidth = 1;
+      context.strokeRect(
+        projection.originX - 0.5,
+        projection.originY - 0.5,
+        projection.width + 1,
+        projection.height + 1,
+      );
+
+      context.fillStyle = "rgba(222, 232, 226, 0.48)";
+      context.font = "500 10px Inter, system-ui, sans-serif";
+      context.textAlign = "left";
+      context.fillText(
+        `${Math.round(10 / camera.zoom)} cells`,
+        projection.originX,
+        Math.min(size.height - 12, projection.originY + projection.height + 19),
+      );
+      context.fillStyle = "rgba(222, 232, 226, 0.38)";
+      context.fillRect(
+        projection.originX,
+        Math.min(size.height - 8, projection.originY + projection.height + 8),
+        cellScale * 10,
+        1,
+      );
+    };
+
+    // At most one paint per animation frame, as docs/ui-architecture.md
+    // specifies. Without this the paint ran synchronously in the effect,
+    // unaligned to the compositor.
+    paintRef.current = window.requestAnimationFrame(draw);
+    return () => {
+      if (paintRef.current !== null) {
+        window.cancelAnimationFrame(paintRef.current);
+        paintRef.current = null;
       }
-    }
-    context.restore();
-
-    context.strokeStyle = "rgba(217, 232, 222, 0.15)";
-    context.lineWidth = 1;
-    context.strokeRect(
-      projection.originX - 0.5,
-      projection.originY - 0.5,
-      projection.width + 1,
-      projection.height + 1,
-    );
-
-    context.fillStyle = "rgba(222, 232, 226, 0.48)";
-    context.font = "500 10px Inter, system-ui, sans-serif";
-    context.textAlign = "left";
-    context.fillText(
-      `${Math.round(10 / camera.zoom)} cells`,
-      projection.originX,
-      Math.min(size.height - 12, projection.originY + projection.height + 19),
-    );
-    context.fillStyle = "rgba(222, 232, 226, 0.38)";
-    context.fillRect(
-      projection.originX,
-      Math.min(size.height - 8, projection.originY + projection.height + 8),
-      cellScale * 10,
-      1,
-    );
+    };
   }, [
     camera,
     frame,
