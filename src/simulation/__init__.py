@@ -1,9 +1,26 @@
 """Deterministic, headless society simulation primitives."""
 
 from .brain import BrainState
-from .config import SimulationConfig
+from .config import CONFIG_SCHEMA_VERSION, SimulationConfig
 from .engine import Simulation
-from .genetics import Gene, Genome, genetic_distance
+from .genetics import GENOME_SCHEMA_VERSION, Gene, Genome, genetic_distance
+from .health import (
+    InfectionStage,
+    disease_severity,
+    duration_ticks,
+    host_susceptibility,
+    transmission_probability,
+)
+from .life_history import (
+    age_capability,
+    age_fecundity,
+    annual_hazard_to_tick,
+    effective_health_capacity,
+    update_body_condition,
+    update_development,
+    update_development_exposure,
+    update_frailty,
+)
 from .models import (
     ActionKind,
     Agent,
@@ -17,6 +34,7 @@ from .models import (
     Traits,
 )
 from .scenario import CountrySpec, Rectangle, Scenario
+from .relationships import RelationshipStore, RelationshipView
 
 __all__ = [
     "ActionKind",
@@ -24,18 +42,35 @@ __all__ = [
     "BrainKind",
     "BrainState",
     "CountrySpec",
+    "CONFIG_SCHEMA_VERSION",
     "CultureState",
     "Event",
     "Gene",
     "Genome",
+    "GENOME_SCHEMA_VERSION",
+    "InfectionStage",
     "Metrics",
     "Pregnancy",
     "Rectangle",
     "ReproductiveRole",
+    "RelationshipStore",
+    "RelationshipView",
     "Scenario",
     "Simulation",
     "SimulationConfig",
     "Terrain",
     "Traits",
+    "age_capability",
+    "age_fecundity",
+    "annual_hazard_to_tick",
+    "effective_health_capacity",
+    "disease_severity",
+    "duration_ticks",
     "genetic_distance",
+    "host_susceptibility",
+    "transmission_probability",
+    "update_body_condition",
+    "update_development",
+    "update_development_exposure",
+    "update_frailty",
 ]

@@ -1,3 +1,4 @@
+import math
 import random
 from array import array
 from typing import Dict, Iterable, List, MutableSequence, Optional, Sequence, Tuple
@@ -16,12 +17,21 @@ class World:
         "terrain",
         "country",
         "capacity",
+        "productivity",
+        "seasonal_amplitude",
+        "seasonal_phase",
         "resources",
         "material_capacity",
+        "material_productivity",
         "materials",
         "has_sea",
         "country_land_cells",
         "_occupants",
+        "last_food_harvested",
+        "last_food_regenerated",
+        "last_material_harvested",
+        "last_material_regenerated",
+        "last_seasonal_productivity",
     )
 
     def __init__(
@@ -58,10 +68,31 @@ class World:
 
         specs = {spec.id: spec for spec in scenario.countries}
         self.capacity = array("d", [0.0]) * cell_count
+        self.productivity = array("d", [0.0]) * cell_count
+        self.seasonal_amplitude = array("d", [0.0]) * cell_count
+        self.seasonal_phase = array("d", [0.0]) * cell_count
         self.resources = array("d", [0.0]) * cell_count
         self.material_capacity = array("d", [0.0]) * cell_count
+        self.material_productivity = array("d", [0.0]) * cell_count
         self.materials = array("d", [0.0]) * cell_count
         for index in range(cell_count):
+            y = index // config.width
+            latitude = (
+                0.0
+                if config.height <= 1
+                else 1.0 - 2.0 * y / (config.height - 1)
+            )
+            self.seasonal_amplitude[index] = (
+                config.seasonality_strength
+                * (
+                    config.seasonal_equator_fraction
+                    + (1.0 - config.seasonal_equator_fraction)
+                    * abs(latitude)
+                )
+            )
+            self.seasonal_phase[index] = (
+                0.0 if latitude >= 0.0 else math.pi
+            )
             if self.terrain[index] == Terrain.SEA:
                 continue
             spec = specs.get(self.country[index])
@@ -74,10 +105,16 @@ class World:
             self.capacity[index] = (
                 config.cell_capacity * fertility * food_multiplier
             )
+            self.productivity[index] = (
+                self.capacity[index] * config.resource_regeneration
+            )
             self.material_capacity[index] = (
                 config.material_cell_capacity
                 * fertility
                 * material_multiplier
+            )
+            self.material_productivity[index] = (
+                self.material_capacity[index] * config.material_regeneration
             )
             variation = rng.uniform(
                 1.0 - config.initial_resource_variation,
@@ -94,6 +131,11 @@ class World:
                 * variation
             )
         self._occupants: Dict[int, List[int]] = {}
+        self.last_food_harvested = 0.0
+        self.last_food_regenerated = 0.0
+        self.last_material_harvested = 0.0
+        self.last_material_regenerated = 0.0
+        self.last_seasonal_productivity = 1.0
 
     def normalize(self, x: int, y: int) -> Optional[Tuple[int, int]]:
         if self.config.wrap_world:
@@ -156,10 +198,14 @@ class World:
         return self.materials[self.cell_index(x, y)]
 
     def harvest(self, x: int, y: int, requested: float) -> float:
-        return self._harvest_layer(self.resources, x, y, requested)
+        amount = self._harvest_layer(self.resources, x, y, requested)
+        self.last_food_harvested += amount
+        return amount
 
     def harvest_material(self, x: int, y: int, requested: float) -> float:
-        return self._harvest_layer(self.materials, x, y, requested)
+        amount = self._harvest_layer(self.materials, x, y, requested)
+        self.last_material_harvested += amount
+        return amount
 
     def _harvest_layer(
         self,
@@ -173,35 +219,117 @@ class World:
         layer[index] -= amount
         return amount
 
-    def regenerate(self) -> None:
-        self._regenerate_layer(
-            self.resources,
-            self.capacity,
-            self.config.resource_regeneration,
+    def begin_tick(self) -> None:
+        self.last_food_harvested = 0.0
+        self.last_food_regenerated = 0.0
+        self.last_material_harvested = 0.0
+        self.last_material_regenerated = 0.0
+
+    def regenerate(self, tick: int = 0) -> None:
+        row_factors = self._seasonal_row_factors(tick)
+        (
+            self.last_food_regenerated,
+            self.last_seasonal_productivity,
+        ) = self._regenerate_food(
+            1.0 / self.config.ticks_per_year,
+            row_factors,
         )
-        self._regenerate_layer(
-            self.materials,
-            self.material_capacity,
-            self.config.material_regeneration,
+        if self.config.materials_renewable:
+            self.last_material_regenerated = self._regenerate_layer(
+                self.materials,
+                self.material_capacity,
+                self.material_productivity,
+                1.0 / self.config.ticks_per_year,
+            )
+
+    def _regenerate_food(
+        self,
+        elapsed_years: float,
+        row_factors: Sequence[float],
+    ) -> Tuple[float, float]:
+        total_growth = 0.0
+        factor_sum = 0.0
+        productive_cells = 0
+        width = self.config.width
+        for index, current in enumerate(self.resources):
+            capacity = self.capacity[index]
+            if capacity <= 0.0:
+                continue
+            factor = row_factors[index // width]
+            factor_sum += factor
+            productive_cells += 1
+            if current >= capacity:
+                continue
+            growth = (
+                self.productivity[index]
+                * elapsed_years
+                * factor
+                * (1.0 - current / capacity)
+            )
+            updated = min(capacity, current + max(growth, 0.0))
+            total_growth += updated - current
+            self.resources[index] = updated
+        return (
+            total_growth,
+            factor_sum / productive_cells if productive_cells else 1.0,
         )
 
     @staticmethod
     def _regenerate_layer(
         values: MutableSequence[float],
         capacities: Sequence[float],
-        rate: float,
-    ) -> None:
+        productivity: Sequence[float],
+        elapsed_years: float,
+        multipliers: Optional[Sequence[float]] = None,
+    ) -> float:
+        total_growth = 0.0
         for index, current in enumerate(values):
             capacity = capacities[index]
             if capacity > 0.0 and current < capacity:
-                growth = rate * (1.0 - current / capacity)
-                values[index] = min(capacity, current + growth)
+                multiplier = (
+                    multipliers[index] if multipliers is not None else 1.0
+                )
+                growth = (
+                    productivity[index]
+                    * elapsed_years
+                    * multiplier
+                    * (1.0 - current / capacity)
+                )
+                updated = min(capacity, current + max(growth, 0.0))
+                total_growth += updated - current
+                values[index] = updated
+        return total_growth
+
+    def _seasonal_row_factors(self, tick: int) -> List[float]:
+        angle = 2.0 * math.pi * (
+            (tick % self.config.ticks_per_year)
+            / self.config.ticks_per_year
+        )
+        width = self.config.width
+        return [
+            1.0
+            + self.seasonal_amplitude[y * width]
+            * math.sin(angle + self.seasonal_phase[y * width])
+            for y in range(self.config.height)
+        ]
+
+    def _seasonal_factors(self, tick: int) -> array:
+        row_factors = self._seasonal_row_factors(tick)
+        return array(
+            "d",
+            (
+                row_factors[index // self.config.width]
+                for index in range(self.config.width * self.config.height)
+            ),
+        )
 
     def rebuild_spatial_index(self, agents: Iterable[Agent]) -> None:
         occupants: Dict[int, List[int]] = {}
         for agent in agents:
             index = self.cell_index(agent.x, agent.y)
             occupants.setdefault(index, []).append(agent.id)
+        for agent_ids in occupants.values():
+            agent_ids.sort()
         self._occupants = occupants
 
     def nearby_agent_ids(
@@ -220,12 +348,97 @@ class World:
             )
         return result
 
+    def sample_nearby_agent_ids(
+        self,
+        x: int,
+        y: int,
+        radius: int,
+        exclude: int,
+        limit: int,
+        rng: random.Random,
+        preselected: Sequence[int] = (),
+    ) -> List[int]:
+        """Sample bounded local attention without materializing a crowd.
+
+        At most ``limit`` IDs are returned even when a cell contains thousands
+        of agents. Callers may reserve slots for dependents or remembered
+        contacts through ``preselected``.
+        """
+
+        if limit <= 0:
+            return []
+        cells = self.nearby_cell_indices(x, y, radius)
+        occupant_lists = []
+        for cell in cells:
+            occupants = self._occupants.get(cell)
+            if occupants:
+                occupant_lists.append(occupants)
+        total = sum(len(items) for items in occupant_lists)
+        if total == 0:
+            return []
+        if (
+            total == 1
+            and not preselected
+            and occupant_lists[0][0] == exclude
+        ):
+            return []
+
+        selected: List[int] = []
+        selected_set = {exclude}
+        for agent_id in preselected:
+            if agent_id not in selected_set:
+                selected.append(agent_id)
+                selected_set.add(agent_id)
+                if len(selected) >= limit:
+                    return sorted(selected)
+
+        if total <= limit * 4:
+            candidates = []
+            for items in occupant_lists:
+                for candidate in items:
+                    if candidate not in selected_set:
+                        candidates.append(candidate)
+            remaining = limit - len(selected)
+            if len(candidates) > remaining:
+                candidates.sort()
+                candidates = rng.sample(candidates, remaining)
+            selected.extend(candidates)
+            return sorted(selected)
+
+        attempts = 0
+        maximum_attempts = max(limit * 12, 24)
+        while len(selected) < limit and attempts < maximum_attempts:
+            ordinal = rng.randrange(total)
+            candidate = exclude
+            for items in occupant_lists:
+                if ordinal < len(items):
+                    candidate = items[ordinal]
+                    break
+                ordinal -= len(items)
+            if candidate not in selected_set:
+                selected.append(candidate)
+                selected_set.add(candidate)
+            attempts += 1
+
+        return sorted(selected)
+
     def nearby_cell_indices(
         self,
         x: int,
         y: int,
         radius: int,
     ) -> Sequence[int]:
+        if not self.config.wrap_world:
+            minimum_x = max(0, x - radius)
+            maximum_x = min(self.config.width - 1, x + radius)
+            minimum_y = max(0, y - radius)
+            maximum_y = min(self.config.height - 1, y + radius)
+            width = self.config.width
+            return [
+                row * width + column
+                for row in range(minimum_y, maximum_y + 1)
+                for column in range(minimum_x, maximum_x + 1)
+            ]
         cells = []
         visited = set()
         for offset_y in range(-radius, radius + 1):

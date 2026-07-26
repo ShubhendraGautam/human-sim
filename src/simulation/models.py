@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional, Tuple, TYPE_CHECKING
 
+from .health import InfectionStage
+
 if TYPE_CHECKING:
     from .brain import BrainState
     from .genetics import Genome
@@ -35,6 +37,7 @@ class ActionKind(str, Enum):
     TEACH = "teach"
     BUILD_VESSEL = "build_vessel"
     CARE = "care"
+    COMMUNICATE = "communicate"
     REST = "rest"
 
 
@@ -53,6 +56,8 @@ class Traits:
     maturity_age: float
     learning_rate: float
     risk_tolerance: float
+    immune_strength: float
+    affiliation: float
     brain_kind: BrainKind
     vision: int
 
@@ -65,7 +70,7 @@ class CultureState:
     conformity: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Pregnancy:
     gestational_parent_id: int
     other_parent_id: int
@@ -76,6 +81,10 @@ class Pregnancy:
     generation: int
     conception_tick: int
     due_tick: int
+    grandparent_ids: Tuple[int, ...] = ()
+    prenatal_condition: float = 1.0
+    prenatal_exposure_years: float = 0.0
+    invested_energy: float = 0.0
 
 
 @dataclass(slots=True)
@@ -105,6 +114,15 @@ class Agent:
     birth_tick: int = 0
     last_reproduction_tick: int = -1_000_000_000
     guardian_id: Optional[int] = None
+    grandparent_ids: Tuple[int, ...] = ()
+    body_condition: float = 1.0
+    development_index: float = 1.0
+    development_exposure_years: float = 0.0
+    frailty: float = 0.0
+    next_reproduction_tick: int = -1_000_000_000
+    relationship_slot: int = -1
+    infection_stage: InfectionStage = InfectionStage.SUSCEPTIBLE
+    infection_ticks_remaining: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,8 +157,28 @@ class Metrics:
     mean_health: float
     mean_inventory: float
     mean_age: float
+    mean_health_fraction: float
+    mean_body_condition: float
+    mean_development: float
+    mean_frailty: float
+    juvenile_population: int
+    age_bands: Dict[str, int]
     maximum_generation: int
     energy_gini: float
+    resource_fraction: float
+    food_per_capita: float
+    total_food_inventory: float
+    total_material_inventory: float
+    food_harvested: float
+    food_regenerated: float
+    food_consumed: float
+    food_spoiled: float
+    food_lost_on_death: float
+    material_harvested: float
+    material_regenerated: float
+    material_consumed: float
+    material_lost_on_death: float
+    seasonal_productivity: float
     seafaring_population: int
     vessels: int
     inventions: int
@@ -153,6 +191,16 @@ class Metrics:
     genetic_diversity: float
     action_entropy: float
     actions: Dict[str, int]
+    attempted_actions: Dict[str, int]
+    failed_actions: Dict[str, int]
+    deaths_by_cause: Dict[str, int]
+    infections: int
+    recoveries: int
+    disease_population: Dict[str, int]
+    mean_remembered_connections: float
+    mean_social_connections: float
+    mean_trust: float
+    isolated_population: int
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -170,8 +218,28 @@ class Metrics:
             "mean_health": self.mean_health,
             "mean_inventory": self.mean_inventory,
             "mean_age": self.mean_age,
+            "mean_health_fraction": self.mean_health_fraction,
+            "mean_body_condition": self.mean_body_condition,
+            "mean_development": self.mean_development,
+            "mean_frailty": self.mean_frailty,
+            "juvenile_population": self.juvenile_population,
+            "age_bands": dict(self.age_bands),
             "maximum_generation": self.maximum_generation,
             "energy_gini": self.energy_gini,
+            "resource_fraction": self.resource_fraction,
+            "food_per_capita": self.food_per_capita,
+            "total_food_inventory": self.total_food_inventory,
+            "total_material_inventory": self.total_material_inventory,
+            "food_harvested": self.food_harvested,
+            "food_regenerated": self.food_regenerated,
+            "food_consumed": self.food_consumed,
+            "food_spoiled": self.food_spoiled,
+            "food_lost_on_death": self.food_lost_on_death,
+            "material_harvested": self.material_harvested,
+            "material_regenerated": self.material_regenerated,
+            "material_consumed": self.material_consumed,
+            "material_lost_on_death": self.material_lost_on_death,
+            "seasonal_productivity": self.seasonal_productivity,
             "seafaring_population": self.seafaring_population,
             "vessels": self.vessels,
             "inventions": self.inventions,
@@ -184,4 +252,16 @@ class Metrics:
             "genetic_diversity": self.genetic_diversity,
             "action_entropy": self.action_entropy,
             "actions": dict(self.actions),
+            "attempted_actions": dict(self.attempted_actions),
+            "failed_actions": dict(self.failed_actions),
+            "deaths_by_cause": dict(self.deaths_by_cause),
+            "infections": self.infections,
+            "recoveries": self.recoveries,
+            "disease_population": dict(self.disease_population),
+            "mean_remembered_connections": (
+                self.mean_remembered_connections
+            ),
+            "mean_social_connections": self.mean_social_connections,
+            "mean_trust": self.mean_trust,
+            "isolated_population": self.isolated_population,
         }

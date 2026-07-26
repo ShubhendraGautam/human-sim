@@ -6,7 +6,7 @@ from typing import Dict, Mapping
 from .config import SimulationConfig
 from .models import BrainKind, Traits
 
-GENOME_SCHEMA_VERSION = 1
+GENOME_SCHEMA_VERSION = 2
 LOCI_PER_GENE = 4
 LOCI_PER_CHROMOSOME = 8
 
@@ -26,6 +26,8 @@ class Gene(IntEnum):
     LEARNING = 11
     COGNITIVE_STYLE = 12
     RISK = 13
+    IMMUNITY = 14
+    AFFILIATION = 15
 
 
 LOCUS_COUNT = len(Gene) * LOCI_PER_GENE
@@ -73,14 +75,20 @@ class Genome:
     ) -> "Genome":
         haplotypes = [0, 0]
         for gene in Gene:
-            center = centers.get(gene, 0.5)
+            # One individual-level draw per gene creates coherent founder
+            # variation instead of independently jittering every allele. It is
+            # both biologically more useful and substantially cheaper.
+            probability = _clamp(
+                centers.get(gene, 0.5) + rng.uniform(-variation, variation)
+            )
+            threshold = min(256, int(probability * 256.0))
+            allele_draws = rng.getrandbits(64)
             for locus in range(LOCI_PER_GENE):
                 bit = int(gene) * LOCI_PER_GENE + locus
                 for haplotype in range(2):
-                    probability = _clamp(
-                        center + rng.uniform(-variation, variation)
-                    )
-                    if rng.random() < probability:
+                    draw_index = locus * 2 + haplotype
+                    draw = (allele_draws >> (draw_index * 8)) & 0xFF
+                    if draw < threshold:
                         haplotypes[haplotype] |= 1 << bit
         return cls(*haplotypes)
 
@@ -123,6 +131,8 @@ def express_traits(
     fertility = genome.expressed(Gene.FERTILITY)
     harvest = genome.expressed(Gene.HARVEST)
     maturation = genome.expressed(Gene.MATURATION)
+    immune_strength = genome.expressed(Gene.IMMUNITY)
+    affiliation = genome.expressed(Gene.AFFILIATION)
     base_metabolism = _lerp(
         config.base_metabolism_minimum,
         config.base_metabolism_maximum,
@@ -136,6 +146,8 @@ def express_traits(
         + longevity * config.longevity_metabolic_cost
         + fertility * config.fertility_metabolic_cost
         + harvest * config.harvest_metabolic_cost
+        + immune_strength * config.immunity_metabolic_cost
+        + affiliation * config.affiliation_metabolic_cost
     )
     cognitive_style = genome.expressed(Gene.COGNITIVE_STYLE)
     brain_index = min(int(cognitive_style * len(BrainKind)), len(BrainKind) - 1)
@@ -189,6 +201,8 @@ def express_traits(
             learning,
         ),
         risk_tolerance=genome.expressed(Gene.RISK),
+        immune_strength=immune_strength,
+        affiliation=affiliation,
         brain_kind=tuple(BrainKind)[brain_index],
         vision=round(_lerp(
             float(config.vision_minimum),

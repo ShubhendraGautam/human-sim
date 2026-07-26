@@ -176,6 +176,12 @@ class SimulationTests(unittest.TestCase):
             SimulationConfig(gene_mutation_probability=1.1)
         with self.assertRaises(ValueError):
             SimulationConfig(gene_crossover_probability=-0.1)
+        with self.assertRaises(ValueError):
+            SimulationConfig(initial_age_minimum=-1.0)
+        with self.assertRaises(ValueError):
+            SimulationConfig(width=4.5)
+        with self.assertRaises(ValueError):
+            SimulationConfig(harvest_amount=-1.0)
 
     def test_seeded_stress_run_preserves_invariants(self) -> None:
         simulation = Simulation(

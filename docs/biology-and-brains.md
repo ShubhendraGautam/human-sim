@@ -4,24 +4,29 @@ This is an abstract evolutionary model, not a claim to reproduce the full
 biology or psychology of real humans. Its purpose is to create causal,
 heritable variation cheaply enough to study large populations.
 
-## Four separate layers
+## Separate causal layers
 
-Each person has four kinds of state:
+Each person has six kinds of state:
 
 1. **Genome** — inherited, recombined, and occasionally mutated.
-2. **Phenotype** — biological potential expressed from that genome.
-3. **Culture** — learned norms and religion, transmitted through families and
+2. **Genetic potential** — biological bounds expressed from that genome.
+3. **Developed physiology** — prenatal condition, childhood nutrition, body
+   condition, current health, infection, and frailty.
+4. **Culture** — learned norms and religion, transmitted through families and
    contact.
-4. **Brain state** — preferences learned during this person's lifetime.
+5. **Brain state** — preferences learned during this person's lifetime.
+6. **Relationships** — bounded, asymmetric memories of particular people.
 
 Only the genome is genetically inherited. Children begin with empty learned
-preferences and no acquired technology. This prevents knowledge such as
-seafaring from appearing genetically in the next generation.
+preferences, fresh relationship memory, and no acquired technology. Prenatal
+condition can affect a newborn's realized health without changing its genome.
+This prevents nutrition, trust, or knowledge such as seafaring from appearing
+genetically in the next generation.
 
 ## Genome
 
-The genome uses two packed 56-bit haplotypes. The bits are grouped into seven
-synthetic chromosomes and fourteen modeled quantitative genes, with four loci
+The genome uses two packed 64-bit haplotypes. The bits are grouped into eight
+synthetic chromosomes and sixteen modeled quantitative genes, with four loci
 per gene.
 
 At conception:
@@ -37,10 +42,11 @@ population mean. The mutation probability is an effective simulation
 parameter, not a real human per-base mutation rate.
 
 Modeled genetic potentials include metabolism, gathering ability, fertility,
-constitution, longevity, maturation, vision, learning, risk, and cognitive
-style. Several advantages increase metabolism: greater sensory, learning,
-constitution, and longevity potential all cost energy. Diversity is therefore
-maintained through costs and environmental selection rather than quotas.
+constitution, longevity, maturation, vision, learning, risk, immune response,
+affiliation, and cognitive style. Several advantages increase metabolism:
+greater sensory, learning, constitution, longevity, immune, fertility, and
+harvesting potential all cost energy. Diversity is therefore maintained
+through costs and environmental selection rather than quotas.
 
 Country cultural settings do not automatically change genomes. Scenario
 authors can explicitly supply founder genetic centers, but the default is the
@@ -57,23 +63,97 @@ Conception requires:
 
 - Distinct, local, non-close-relative partners.
 - Complementary reproductive roles.
-- Individual biological maturity.
-- Adequate energy and health.
+- Both agents independently choosing reproductive behavior during the same
+  decision phase. A bounded resolver forms disjoint pairs from local
+  proposals; selecting some other action is never treated as consent.
+- Age-specific fecundity rather than a permanent fertile state after maturity.
+- Adequate energy, developed capacity, body condition, and current health.
 - Reproduction cooldown completion.
 - No current pregnancy for an ova-role person.
 
-Success is stochastic and depends on both partners' fertility and current
-health. A successful conception creates a pregnancy rather than an instant
-child. Gestation consumes energy every tick; low health or death can end it.
-Birth occurs only at the due tick and has an additional energy cost. Newborn
-energy is capped by the energy invested through conception, gestation, and
-birth. Young children follow a guardian, have age-scaled metabolism, cannot
-perform adult resource or social actions, and depend on caregivers to transfer
-food until the configured independence age.
+This separates reciprocal intent from the brittle requirement that two people
+independently choose the exact same pair. Success is stochastic and depends on
+both partners' fertility and current
+health, chronic condition, developmental history, and age curve. A successful
+conception creates a pregnancy rather than an instant child. Gestation records
+only energy that the gestational parent actually pays; scheduled costs cannot
+create phantom newborn reserves. Prenatal condition is weighted by elapsed
+simulated years rather than observation count. Loss is a stochastic hazard
+shaped by health and nutrition, with a hard low-health safety boundary. Birth
+occurs only at the due tick, costs energy and health, and begins a postpartum
+cooldown without shortening any longer existing cooldown.
 
-Detailed childhood development, pregnancy complications beyond health loss,
-mate consent, kinship beyond parents/siblings, and more complete sex biology
-are intentionally not modeled yet.
+Newborn energy is capped by recorded conception, gestation, and birth
+investment. Recent ancestry is stored through grandparents, preventing
+parent/child, sibling, aunt/niece, grandparent, and first-cousin pairings
+without an unbounded pedigree graph. Young children travel with a local
+guardian, including as bounded vessel passengers, and either living parent can
+provide care. Physical capability rises continuously between dependency and
+maturity instead of changing from child to adult in one tick.
+
+## Nutrition, development, and aging
+
+Energy is immediate fuel. Body condition is an exponential history of energy
+adequacy, so one missed meal differs from long deprivation. Until maturity, a
+time-weighted developmental index combines prenatal and childhood condition.
+It permanently affects realized health reserve, physical production, and
+fecundity, while the genome remains unchanged.
+
+Genetic lifespan is an aging scale, not a scheduled death date. Frailty begins
+late in that scale and accumulates faster with age. Constitution and nutrition
+modify its rate. Frailty reduces current health capacity and healing, adds
+health damage, and raises a deterministic-seed stochastic mortality hazard.
+Only a separate absolute maximum age remains as a simulation safety boundary.
+Healing depends on body condition, is suppressed by frailty, and consumes
+energy. Acute damage is applied before healing, so a terminal infection cannot
+recover later in the same tick. Mixed health damage is attributed to its
+largest causal contributor; death causes are observer data, not scripted
+outcomes.
+
+All continuous lifecycle rates use simulated years. Some action opportunities
+remain discrete per tick, so changing `ticks_per_year` is a different temporal
+resolution experiment rather than a cosmetically neutral UI setting.
+
+## Infection
+
+The current disease layer is one generic, calibratable SEIR-style process:
+susceptible, exposed, infectious, and temporarily recovered. It is not a model
+of a named disease.
+
+- A run has no outbreak unless founders are explicitly exposed through global
+  configuration or a country's starting condition.
+- Infectious agents deposit pressure into a bounded neighborhood layer.
+- Transmission is a hazard of local pressure and current host susceptibility.
+- Inherited immune potential, age, body condition, and frailty affect
+  susceptibility or severity.
+- Infection consumes energy and damages health; it never directly deletes an
+  agent.
+- Recovery grants temporary immunity. Gestational infection can transmit
+  vertically at a configured probability; otherwise recent maternal immunity
+  can protect a newborn temporarily.
+
+The implementation is `O(population + occupied cells)` per tick and stores only
+a numeric stage and timer per agent.
+
+## Relationships and culture
+
+Relationships are directed: one person can trust another without the feeling
+being mutual. Each agent has a row in a central fixed-capacity
+structure-of-arrays store containing contact ID, trust, reciprocity balance,
+encounter count, and recency. Values decay lazily and deterministic eviction
+keeps memory bounded.
+
+Receiving concrete help can raise recipient-to-giver trust. Giving records a
+cost in the giver's reciprocity balance but does not make the giver trust the
+recipient automatically. Sharing, care, teaching, communication, and mate
+choice can therefore diverge between strangers, relatives, and repeated
+partners without a global friendship graph.
+
+Communication is an explicit costly action. It exposes one cultural dimension
+and can expose a belief; food sharing changes only observed generosity.
+Cultural influence depends on the learner, conformity, familiarity, and trust.
+A single food transfer no longer copies every hidden cultural value or flips a
+religion label.
 
 ## Brain mechanisms
 
@@ -91,9 +171,17 @@ generosity, and conformity tendencies. This means two people with the same
 brain kind can still behave differently.
 
 After resolution, a brain receives the outcome of its own action. Successful
-and failed actions update a fixed-size preference vector. The state is bounded
-and never inherited. Social brains can inspect only a configured maximum
-number of local neighbors.
+and failed actions update a fixed-size preference vector plus a compact last
+outcome record. The state is bounded and never inherited. Social brains weight
+recent successful behavior by relationship confidence and trust rather than
+copying every visible attempt equally.
+
+Attention is capped before neighbor objects are materialized. Dependents and
+locally remembered contacts receive priority, and remaining capacity is
+sampled from the local population. Each attended person becomes a separate
+feasible share, care, teaching, communication, or mate candidate; the engine
+no longer picks one universal “poorest” or “highest-energy” target before the
+brain evaluates options.
 
 Decision randomness comes from a deterministic stream keyed by seed, tick, and
 agent ID. This keeps one brain's variable number of random choices from
@@ -102,7 +190,27 @@ decision evaluation.
 
 ## What to measure
 
-The observer reports brain-kind populations, action entropy, reproductive
+The observer reports age bands, body condition, development, frailty, health
+fraction, death causes, disease compartments, incidence and recovery totals,
+brain-kind populations, successful/attempted/failed actions, action entropy,
+remembered and recently active relationship degree and trust, reproductive
 roles, pregnancies, losses, within-person heterozygosity, and population
-genetic diversity. These are measurements only; they do not feed back into
-agent behavior.
+genetic diversity. Food and material accounting separates world stocks,
+agent-held stocks, harvest transfers, ecological renewal, consumption,
+spoilage, construction/research use, and inventory lost with deaths. These are
+measurements only; they do not feed back into agent behavior.
+
+## Intentional limits
+
+This is still not a clinical, demographic, or psychological prediction model.
+It has no multiple nutrients, named pathogen strains, complete sex
+development, detailed organs, injuries, explicit households, pair-bond
+contracts, full pedigree, agriculture, economy, government, warfare, or
+language. Those should be added only when they introduce a causal mechanism
+that can be calibrated and measured without scripting an outcome.
+
+Relationship trust is currently one general help/reliability signal rather
+than separate expectations for care, safety, teaching, and partnership.
+Social imitation observes a compact recent action/success record rather than a
+rich theory of another person's motives. These are deliberate bounded-state
+approximations and should not be interpreted as full human psychology.

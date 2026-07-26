@@ -104,9 +104,28 @@ class ScenarioTests(unittest.TestCase):
         snapshot = simulation.snapshot()
 
         json.dumps(snapshot)
-        self.assertEqual(snapshot["schema_version"], 2)
+        self.assertEqual(snapshot["schema_version"], 3)
+        self.assertEqual(snapshot["snapshot_kind"], "visualization")
+        self.assertIn("config", snapshot)
+        self.assertIn("config_schema_version", snapshot)
+        self.assertIn("genome_schema_version", snapshot)
+        self.assertEqual(
+            len(snapshot["action_preference_order"]),
+            len(snapshot["agents"]["learned_preferences"][0]),
+        )
         self.assertEqual(snapshot["world"]["width"], 5)
         self.assertEqual(len(snapshot["agents"]["id"]), 3)
+        for field in (
+            "metabolism",
+            "harvest_skill",
+            "inherited_generosity",
+            "inherited_exploration",
+            "inherited_curiosity",
+            "inherited_conformity",
+            "risk_tolerance",
+            "vision",
+        ):
+            self.assertEqual(len(snapshot["agents"][field]), 3)
         self.assertEqual(
             snapshot["world"]["terrain"][
                 simulation.world.cell_index(2, 0)
@@ -119,6 +138,22 @@ class ScenarioTests(unittest.TestCase):
             countries=(
                 CountrySpec(0, "A", Rectangle(0, 0, 3, 2), 1),
                 CountrySpec(1, "B", Rectangle(1, 0, 3, 2), 1),
+            )
+        )
+
+        with self.assertRaises(ValueError):
+            Simulation(self.config, scenario=scenario)
+
+    def test_country_labels_must_be_safe_strings(self) -> None:
+        scenario = Scenario(
+            countries=(
+                CountrySpec(
+                    0,
+                    "A",
+                    Rectangle(0, 0, 2, 2),
+                    1,
+                    religion=[],
+                ),
             )
         )
 

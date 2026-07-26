@@ -1,5 +1,6 @@
+import math
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Mapping, Tuple
+from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
 from .config import SimulationConfig
 
@@ -24,6 +25,10 @@ class Rectangle:
                 yield x, y
 
     def validate(self, config: SimulationConfig) -> None:
+        for name in ("x", "y", "width", "height"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"region {name} must be an integer")
         if self.x < 0 or self.y < 0 or self.width <= 0 or self.height <= 0:
             raise ValueError("regions must have positive in-world dimensions")
         if self.x + self.width > config.width:
@@ -55,9 +60,12 @@ class CountrySpec:
     learning_mean: float = 0.5
     brain_style_mean: float = 0.5
     risk_mean: float = 0.5
+    immunity_mean: float = 0.5
+    affiliation_mean: float = 0.5
     starting_energy_multiplier: float = 1.0
     food_multiplier: float = 1.0
     material_multiplier: float = 1.0
+    initial_exposed_fraction: Optional[float] = None
 
     @classmethod
     def from_dict(cls, values: Mapping[str, Any]) -> "CountrySpec":
@@ -66,10 +74,19 @@ class CountrySpec:
         return cls(**data)
 
     def validate(self, config: SimulationConfig) -> None:
+        if not isinstance(self.id, int) or isinstance(self.id, bool):
+            raise ValueError("country id must be an integer")
+        if not isinstance(self.population, int) or isinstance(
+            self.population,
+            bool,
+        ):
+            raise ValueError("country population must be an integer")
         if self.id < 0:
             raise ValueError("country id cannot be negative")
-        if not self.name:
+        if not isinstance(self.name, str) or not self.name:
             raise ValueError("country name cannot be empty")
+        if not isinstance(self.religion, str) or not self.religion:
+            raise ValueError("country religion must be a nonempty string")
         if self.population < 0:
             raise ValueError("country population cannot be negative")
         self.region.validate(config)
@@ -87,16 +104,45 @@ class CountrySpec:
             "learning_mean",
             "brain_style_mean",
             "risk_mean",
+            "immunity_mean",
+            "affiliation_mean",
         ):
-            if not 0.0 <= getattr(self, name) <= 1.0:
+            value = getattr(self, name)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or not 0.0 <= value <= 1.0
+            ):
                 raise ValueError(f"{name} must be between 0 and 1")
         for name in (
             "starting_energy_multiplier",
             "food_multiplier",
             "material_multiplier",
         ):
-            if getattr(self, name) < 0.0:
+            value = getattr(self, name)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value < 0.0
+            ):
                 raise ValueError(f"{name} cannot be negative")
+        if (
+            self.initial_exposed_fraction is not None
+            and (
+                not isinstance(
+                    self.initial_exposed_fraction,
+                    (int, float),
+                )
+                or isinstance(self.initial_exposed_fraction, bool)
+                or not math.isfinite(self.initial_exposed_fraction)
+                or not 0.0 <= self.initial_exposed_fraction <= 1.0
+            )
+        ):
+            raise ValueError(
+                "initial_exposed_fraction must be between 0 and 1"
+            )
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -118,9 +164,12 @@ class CountrySpec:
             "learning_mean": self.learning_mean,
             "brain_style_mean": self.brain_style_mean,
             "risk_mean": self.risk_mean,
+            "immunity_mean": self.immunity_mean,
+            "affiliation_mean": self.affiliation_mean,
             "starting_energy_multiplier": self.starting_energy_multiplier,
             "food_multiplier": self.food_multiplier,
             "material_multiplier": self.material_multiplier,
+            "initial_exposed_fraction": self.initial_exposed_fraction,
         }
 
 
