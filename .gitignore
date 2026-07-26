@@ -1,29 +1,32 @@
 # Python
+# These are packaging artifacts at the repository root. The leading slash
+# matters: an unanchored "lib/" also matches ui/src/lib/, which silently kept
+# three TypeScript sources out of the repository until CI failed on them.
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
 # Virtual Environments
-venv/
-env/
-ENV/
+/venv/
+/env/
+/ENV/
 .venv
 
 # IDE
