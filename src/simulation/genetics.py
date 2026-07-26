@@ -1,10 +1,14 @@
 import random
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Dict, Mapping, Tuple
+from typing import Dict, Mapping
 
 from .config import SimulationConfig
 from .models import BrainKind, Traits
+
+GENOME_SCHEMA_VERSION = 1
+LOCI_PER_GENE = 4
+LOCI_PER_CHROMOSOME = 8
 
 
 class Gene(IntEnum):
@@ -24,24 +28,41 @@ class Gene(IntEnum):
     RISK = 13
 
 
-GENE_COUNT = len(Gene)
+LOCUS_COUNT = len(Gene) * LOCI_PER_GENE
+CHROMOSOME_COUNT = LOCUS_COUNT // LOCI_PER_CHROMOSOME
+GENOME_MASK = (1 << LOCUS_COUNT) - 1
 
 
 @dataclass(frozen=True, slots=True)
 class Genome:
-    """Compact diploid genome: two normalized alleles per modeled locus."""
+    """Two packed haplotypes containing linked, synthetic biallelic loci."""
 
-    alleles: Tuple[float, ...]
+    haplotype_a: int
+    haplotype_b: int
 
     def __post_init__(self) -> None:
-        if len(self.alleles) != GENE_COUNT * 2:
-            raise ValueError("genome contains the wrong number of alleles")
-        if any(not 0.0 <= allele <= 1.0 for allele in self.alleles):
-            raise ValueError("alleles must be between 0 and 1")
+        if (
+            self.haplotype_a < 0
+            or self.haplotype_b < 0
+            or self.haplotype_a & ~GENOME_MASK
+            or self.haplotype_b & ~GENOME_MASK
+        ):
+            raise ValueError("genome has alleles outside its schema")
 
     def expressed(self, gene: Gene) -> float:
-        offset = int(gene) * 2
-        return (self.alleles[offset] + self.alleles[offset + 1]) / 2.0
+        shift = int(gene) * LOCI_PER_GENE
+        mask = ((1 << LOCI_PER_GENE) - 1) << shift
+        dosage = (
+            (self.haplotype_a & mask).bit_count()
+            + (self.haplotype_b & mask).bit_count()
+        )
+        return dosage / (LOCI_PER_GENE * 2)
+
+    def heterozygosity(self) -> float:
+        return (
+            (self.haplotype_a ^ self.haplotype_b).bit_count()
+            / LOCUS_COUNT
+        )
 
     @classmethod
     def founder(
@@ -50,15 +71,18 @@ class Genome:
         variation: float,
         centers: Mapping[Gene, float],
     ) -> "Genome":
-        alleles = []
+        haplotypes = [0, 0]
         for gene in Gene:
             center = centers.get(gene, 0.5)
-            for _ in range(2):
-                alleles.append(_clamp(rng.uniform(
-                    center - variation,
-                    center + variation,
-                )))
-        return cls(tuple(alleles))
+            for locus in range(LOCI_PER_GENE):
+                bit = int(gene) * LOCI_PER_GENE + locus
+                for haplotype in range(2):
+                    probability = _clamp(
+                        center + rng.uniform(-variation, variation)
+                    )
+                    if rng.random() < probability:
+                        haplotypes[haplotype] |= 1 << bit
+        return cls(*haplotypes)
 
     @classmethod
     def recombine(
@@ -67,28 +91,22 @@ class Genome:
         second: "Genome",
         rng: random.Random,
         mutation_probability: float,
-        mutation_scale: float,
+        crossover_probability: float,
     ) -> "Genome":
-        """Create one gamete from each parent, then mutate per copied allele."""
-
-        child = []
-        for gene in Gene:
-            offset = int(gene) * 2
-            first_allele = first.alleles[offset + rng.randrange(2)]
-            second_allele = second.alleles[offset + rng.randrange(2)]
-            child.append(_mutate(
-                first_allele,
+        return cls(
+            _make_gamete(
+                first,
                 rng,
                 mutation_probability,
-                mutation_scale,
-            ))
-            child.append(_mutate(
-                second_allele,
+                crossover_probability,
+            ),
+            _make_gamete(
+                second,
                 rng,
                 mutation_probability,
-                mutation_scale,
-            ))
-        return cls(tuple(child))
+                crossover_probability,
+            ),
+        )
 
     def expressed_values(self) -> Dict[str, float]:
         return {gene.name.lower(): self.expressed(gene) for gene in Gene}
@@ -100,6 +118,11 @@ def express_traits(
 ) -> Traits:
     learning = genome.expressed(Gene.LEARNING)
     vision_gene = genome.expressed(Gene.VISION)
+    constitution = genome.expressed(Gene.CONSTITUTION)
+    longevity = genome.expressed(Gene.LONGEVITY)
+    fertility = genome.expressed(Gene.FERTILITY)
+    harvest = genome.expressed(Gene.HARVEST)
+    maturation = genome.expressed(Gene.MATURATION)
     base_metabolism = _lerp(
         config.base_metabolism_minimum,
         config.base_metabolism_maximum,
@@ -109,6 +132,10 @@ def express_traits(
         1.0
         + learning * config.learning_metabolic_cost
         + vision_gene * config.vision_metabolic_cost
+        + constitution * config.constitution_metabolic_cost
+        + longevity * config.longevity_metabolic_cost
+        + fertility * config.fertility_metabolic_cost
+        + harvest * config.harvest_metabolic_cost
     )
     cognitive_style = genome.expressed(Gene.COGNITIVE_STYLE)
     brain_index = min(int(cognitive_style * len(BrainKind)), len(BrainKind) - 1)
@@ -118,28 +145,43 @@ def express_traits(
         harvest_skill=_lerp(
             config.harvest_skill_minimum,
             config.harvest_skill_maximum,
-            genome.expressed(Gene.HARVEST),
+            harvest,
         ),
         generosity=genome.expressed(Gene.GENEROSITY),
-        fertility=genome.expressed(Gene.FERTILITY),
+        fertility=fertility,
         exploration=genome.expressed(Gene.EXPLORATION),
         curiosity=genome.expressed(Gene.CURIOSITY),
         conformity=genome.expressed(Gene.CONFORMITY),
-        constitution=genome.expressed(Gene.CONSTITUTION),
-        maximum_health=config.maximum_health * _lerp(
-            config.minimum_health_fraction,
-            config.maximum_health_fraction,
-            genome.expressed(Gene.CONSTITUTION),
+        constitution=constitution,
+        maximum_health=(
+            config.maximum_health
+            * _lerp(
+                config.minimum_health_fraction,
+                config.maximum_health_fraction,
+                constitution,
+            )
+            * (
+                1.0
+                - (1.0 - maturation)
+                * config.early_maturation_health_cost
+            )
         ),
-        lifespan=_lerp(
-            config.minimum_lifespan,
-            config.maximum_age,
-            genome.expressed(Gene.LONGEVITY),
+        lifespan=(
+            _lerp(
+                config.minimum_lifespan,
+                config.maximum_age,
+                longevity,
+            )
+            * (
+                1.0
+                - (1.0 - maturation)
+                * config.early_maturation_lifespan_cost
+            )
         ),
         maturity_age=_lerp(
             config.minimum_maturity_age,
             config.maximum_maturity_age,
-            genome.expressed(Gene.MATURATION),
+            maturation,
         ),
         learning_rate=_lerp(
             config.minimum_learning_rate,
@@ -157,21 +199,40 @@ def express_traits(
 
 
 def genetic_distance(first: Genome, second: Genome) -> float:
-    return sum(
-        abs(left - right)
-        for left, right in zip(first.alleles, second.alleles)
-    ) / len(first.alleles)
+    different = (
+        (first.haplotype_a ^ second.haplotype_a).bit_count()
+        + (first.haplotype_b ^ second.haplotype_b).bit_count()
+    )
+    return different / (LOCUS_COUNT * 2)
 
 
-def _mutate(
-    allele: float,
+def _make_gamete(
+    genome: Genome,
     rng: random.Random,
-    probability: float,
-    scale: float,
-) -> float:
-    if rng.random() < probability:
-        return _clamp(allele + rng.gauss(0.0, scale))
-    return allele
+    mutation_probability: float,
+    crossover_probability: float,
+) -> int:
+    gamete = 0
+    chromosome_mask = (1 << LOCI_PER_CHROMOSOME) - 1
+    for chromosome in range(CHROMOSOME_COUNT):
+        shift = chromosome * LOCI_PER_CHROMOSOME
+        first = (genome.haplotype_a >> shift) & chromosome_mask
+        second = (genome.haplotype_b >> shift) & chromosome_mask
+        if rng.random() < crossover_probability:
+            crossover = rng.randrange(1, LOCI_PER_CHROMOSOME)
+            lower_mask = (1 << crossover) - 1
+            if rng.randrange(2):
+                segment = (first & lower_mask) | (second & ~lower_mask)
+            else:
+                segment = (second & lower_mask) | (first & ~lower_mask)
+        else:
+            segment = first if rng.randrange(2) == 0 else second
+        gamete |= (segment & chromosome_mask) << shift
+
+    for locus in range(LOCUS_COUNT):
+        if rng.random() < mutation_probability:
+            gamete ^= 1 << locus
+    return gamete & GENOME_MASK
 
 
 def _lerp(minimum: float, maximum: float, value: float) -> float:

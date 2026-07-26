@@ -17,12 +17,19 @@ Every run contains:
 - User-defined countries that place founders in distinct regions with different
   religions, cultural trait distributions, resources, and starting energy.
 - Persistent agents with energy, health, food inventory, age, position, and
-  inherited traits.
+  inherited biology.
+- Compact diploid genomes with chromosome recombination, probabilistic
+  mutation, individual health potential, fertility, metabolism, maturation,
+  longevity, sensory ability, and cognitive tendencies.
+- Four brain mechanisms—deliberative, exploratory, habitual learning, and
+  social imitation—combined with continuous individual temperament.
 - Local perception: agents can inspect nearby cells and interact only with
   nearby agents.
 - Utility-based choices between eating, gathering, sharing, reproduction,
   movement, research, teaching, construction, and rest.
-- Birth, trait inheritance and mutation, aging, starvation, and death.
+- Biological reproductive roles, health- and fertility-dependent conception,
+  costly gestation, delayed birth, inheritance, mutation, aging, starvation,
+  dependent children, caregiver food transfer, and death.
 - Material gathering and an embodied seafaring path: curious coastal agents
   experiment at a cost, knowledge spreads locally, vessels require materials,
   and sea movement consumes energy and durability.
@@ -31,9 +38,10 @@ Every run contains:
   exactly the same state.
 
 Religion is currently a transmissible identity label, not a source of scripted
-behavior. Traditions influence founder trait distributions and can change
-through inheritance and contact. Wealth, markets, borders, and government
-remain intentionally absent until lower-level mechanics can produce them.
+behavior. Culture and lifetime learning are separate from genetic inheritance.
+Traditions initialize cultural tendencies and can change through family and
+contact. Wealth, markets, borders, and government remain intentionally absent
+until lower-level mechanics can produce them.
 
 ## Run
 
@@ -139,7 +147,9 @@ owns its clock and random generator; it does not depend on wall-clock time.
 The spatial index avoids all-pairs interaction. Per-tick work grows with the
 population and each agent's bounded perception area, rather than with the
 square of the population. Detailed design and extension rules are documented
-in [docs/architecture.md](docs/architecture.md).
+in [docs/architecture.md](docs/architecture.md). The explicit limits and
+mechanics of the biology model are in
+[docs/biology-and-brains.md](docs/biology-and-brains.md).
 
 ## Experimental discipline
 

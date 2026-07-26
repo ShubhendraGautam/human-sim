@@ -1,6 +1,7 @@
 import unittest
+from dataclasses import replace
 
-from src.simulation import Simulation, SimulationConfig
+from src.simulation import ReproductiveRole, Simulation, SimulationConfig
 
 
 class SimulationTests(unittest.TestCase):
@@ -67,7 +68,7 @@ class SimulationTests(unittest.TestCase):
             initial_energy_maximum=1.0,
             base_metabolism_minimum=1.0,
             base_metabolism_maximum=1.0,
-            starvation_damage=100.0,
+            starvation_damage=200.0,
         )
         simulation = Simulation(config, seed=4)
 
@@ -93,10 +94,19 @@ class SimulationTests(unittest.TestCase):
             sharing_weight=0.0,
             movement_weight=0.0,
             decision_noise=0.0,
+            maximum_conception_probability=1.0,
+            gestation_years=1.0 / 12.0,
         )
         simulation = Simulation(config, seed=5)
+        for index, agent in enumerate(simulation.agents.values()):
+            agent.reproductive_role = (
+                ReproductiveRole.OVA
+                if index % 2 == 0
+                else ReproductiveRole.SPERM
+            )
+            agent.traits = replace(agent.traits, fertility=1.0)
 
-        simulation.step()
+        simulation.run(2)
 
         children = [
             agent
@@ -142,8 +152,16 @@ class SimulationTests(unittest.TestCase):
             movement_weight=0.0,
             decision_noise=0.0,
             event_log_capacity=3,
+            maximum_conception_probability=1.0,
         )
         simulation = Simulation(config, seed=7)
+        for index, agent in enumerate(simulation.agents.values()):
+            agent.reproductive_role = (
+                ReproductiveRole.OVA
+                if index % 2 == 0
+                else ReproductiveRole.SPERM
+            )
+            agent.traits = replace(agent.traits, fertility=1.0)
 
         simulation.run(2)
 
@@ -154,6 +172,29 @@ class SimulationTests(unittest.TestCase):
             SimulationConfig(width=0)
         with self.assertRaises(ValueError):
             SimulationConfig(initial_population=-1)
+        with self.assertRaises(ValueError):
+            SimulationConfig(gene_mutation_probability=1.1)
+        with self.assertRaises(ValueError):
+            SimulationConfig(gene_crossover_probability=-0.1)
+
+    def test_seeded_stress_run_preserves_invariants(self) -> None:
+        simulation = Simulation(
+            SimulationConfig(
+                width=12,
+                height=12,
+                initial_population=80,
+            ),
+            seed=15,
+        )
+
+        simulation.run(60)
+
+        simulation.validate_state()
+        metrics = simulation.measure()
+        self.assertGreaterEqual(metrics.genetic_diversity, 0.0)
+        self.assertLessEqual(metrics.genetic_diversity, 0.5)
+        self.assertGreaterEqual(metrics.action_entropy, 0.0)
+        self.assertLessEqual(metrics.action_entropy, 1.0)
 
 
 if __name__ == "__main__":

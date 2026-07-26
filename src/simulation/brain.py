@@ -1,5 +1,6 @@
 import math
 import random
+from array import array
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, List, Tuple
@@ -15,8 +16,8 @@ ACTION_INDEX = {kind: index for index, kind in enumerate(ACTION_KINDS)}
 class BrainState:
     """Bounded lifetime learning state; never inherited by children."""
 
-    preferences: List[float] = field(
-        default_factory=lambda: [0.0] * len(ACTION_KINDS)
+    preferences: array = field(
+        default_factory=lambda: array("f", [0.0]) * len(ACTION_KINDS)
     )
     last_action: str = ""
 

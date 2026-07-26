@@ -34,6 +34,7 @@ class ActionKind(str, Enum):
     RESEARCH = "research"
     TEACH = "teach"
     BUILD_VESSEL = "build_vessel"
+    CARE = "care"
     REST = "rest"
 
 
@@ -64,6 +65,19 @@ class CultureState:
     conformity: float
 
 
+@dataclass(frozen=True, slots=True)
+class Pregnancy:
+    gestational_parent_id: int
+    other_parent_id: int
+    genome: "Genome"
+    culture: CultureState
+    reproductive_role: ReproductiveRole
+    belief_id: int
+    generation: int
+    conception_tick: int
+    due_tick: int
+
+
 @dataclass(slots=True)
 class Agent:
     id: int
@@ -79,7 +93,7 @@ class Agent:
     culture: CultureState
     brain: "BrainState"
     reproductive_role: ReproductiveRole
-    country_id: int
+    birth_country_id: int
     belief_id: int
     research_progress: float = 0.0
     knows_seafaring: bool = False
@@ -90,6 +104,7 @@ class Agent:
     parents: Optional[Tuple[int, int]] = None
     birth_tick: int = 0
     last_reproduction_tick: int = -1_000_000_000
+    guardian_id: Optional[int] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +129,9 @@ class Metrics:
     year: float
     population: int
     births: int
+    conceptions: int
+    pregnancies: int
+    pregnancy_losses: int
     deaths: int
     total_resources: float
     total_materials: float
@@ -132,6 +150,8 @@ class Metrics:
     brain_population: Dict[str, int]
     reproductive_roles: Dict[str, int]
     mean_heterozygosity: float
+    genetic_diversity: float
+    action_entropy: float
     actions: Dict[str, int]
 
     def to_dict(self) -> Dict[str, object]:
@@ -140,6 +160,9 @@ class Metrics:
             "year": self.year,
             "population": self.population,
             "births": self.births,
+            "conceptions": self.conceptions,
+            "pregnancies": self.pregnancies,
+            "pregnancy_losses": self.pregnancy_losses,
             "deaths": self.deaths,
             "total_resources": self.total_resources,
             "total_materials": self.total_materials,
@@ -158,5 +181,7 @@ class Metrics:
             "brain_population": dict(self.brain_population),
             "reproductive_roles": dict(self.reproductive_roles),
             "mean_heterozygosity": self.mean_heterozygosity,
+            "genetic_diversity": self.genetic_diversity,
+            "action_entropy": self.action_entropy,
             "actions": dict(self.actions),
         }

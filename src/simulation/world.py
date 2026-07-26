@@ -241,6 +241,7 @@ class World:
         agent: Agent,
         rng: random.Random,
         can_cross_sea: bool,
+        exploration: float,
     ) -> Tuple[int, int]:
         best_score = float("-inf")
         best_step = (agent.x, agent.y)
@@ -293,7 +294,7 @@ class World:
                     * self.config.material_attraction_weight
                     - len(self._occupants.get(cell, ()))
                     * self.config.crowding_weight
-                    + rng.random() * agent.traits.exploration
+                    + rng.random() * exploration
                 )
                 if score > best_score:
                     best_score = score

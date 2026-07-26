@@ -62,11 +62,11 @@ class ScenarioTests(unittest.TestCase):
         )
 
         for agent in simulation.agents.values():
-            self.assertEqual(agent.country_id, 0)
+            self.assertEqual(agent.birth_country_id, 0)
             self.assertEqual(agent.belief_id, 0)
             self.assertIn(agent.x, (0, 1))
-            self.assertEqual(agent.traits.generosity, 0.8)
-            self.assertEqual(agent.traits.curiosity, 1.0)
+            self.assertEqual(agent.culture.generosity, 0.8)
+            self.assertEqual(agent.culture.curiosity, 1.0)
 
     def test_sea_requires_discovery_material_and_vessel(self) -> None:
         simulation = Simulation(
@@ -104,7 +104,7 @@ class ScenarioTests(unittest.TestCase):
         snapshot = simulation.snapshot()
 
         json.dumps(snapshot)
-        self.assertEqual(snapshot["schema_version"], 1)
+        self.assertEqual(snapshot["schema_version"], 2)
         self.assertEqual(snapshot["world"]["width"], 5)
         self.assertEqual(len(snapshot["agents"]["id"]), 3)
         self.assertEqual(

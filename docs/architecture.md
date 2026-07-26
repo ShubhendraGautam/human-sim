@@ -44,9 +44,10 @@ biographies, display colors, and prose belong in visualization or reporting
 layers.
 
 Traits are continuous where possible. Founders receive variation, and children
-inherit the midpoint of parental traits plus bounded mutation. There is no
-explicit selection score: reproductive success and survival provide selection
-pressure through the environment.
+receive one recombined, possibly mutated haplotype from each parent. Phenotypes,
+culture, and learned brain state are separate. There is no explicit selection
+score: reproductive success and survival provide selection pressure through
+the environment.
 
 ### `src.simulation.world`
 
@@ -100,6 +101,8 @@ These rules preserve a future path to partitioning:
   either through a sink.
 - UI snapshots are versioned and columnar, avoiding an API tied to Python
   objects.
+- Decision random streams are keyed per tick and agent, so brain evaluation can
+  later be parallelized without changing unrelated decisions.
 
 Do not assign one operating-system process or container to every agent. If a
 single process becomes insufficient, partition spatial regions into a modest
@@ -107,12 +110,13 @@ number of workers and exchange boundary actions between ticks.
 
 ### Native-code boundary
 
-C is useful only after profiling identifies a stable hot loop. The likely first
-ports are neighborhood scoring, action scoring, and resource regeneration—not
+C is useful only after profiling identifies a stable hot loop. Packed genomes
+are two integers per agent, and the likely first ports are neighborhood
+scoring, action scoring, genetics, and resource regeneration—not
 the scenario parser or UI API. Terrain and resource data already use flat
 numeric layers, agents interact through integer IDs, and ticks have explicit
 phases. A C, Cython, Rust, or NumPy-backed implementation can therefore sit
-behind `Simulation` while keeping scenario JSON and snapshot schema version 1.
+behind `Simulation` while keeping scenario JSON and snapshot schema version 2.
 
 Until populations make Python the measured bottleneck, native code would slow
 model iteration and make correctness harder to inspect. Every future native
@@ -132,9 +136,10 @@ it. Experiments should distinguish:
 
 Metrics currently include population, births, deaths, food/material stock, mean
 energy/health/inventory/age, maximum generation, energy inequality, action
-counts, beliefs, country occupancy, seafaring knowledge, vessels, inventions,
-and landfalls. New hypotheses should normally add an observer metric before
-adding a new agent rule.
+counts and entropy, beliefs, country occupancy, brain mechanisms, population
+genetic diversity, pregnancies, seafaring knowledge, vessels, inventions, and
+landfalls. New hypotheses should normally add an observer metric before adding
+a new agent rule.
 
 Useful future observer metrics include network clustering, spatial
 segregation, lineage diversity, trait distributions, resource inequality,

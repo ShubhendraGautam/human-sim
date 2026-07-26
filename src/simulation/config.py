@@ -39,15 +39,14 @@ class SimulationConfig:
     harvest_amount: float = 2.2
     material_harvest_amount: float = 1.2
     share_amount: float = 1.5
+    care_amount: float = 1.5
 
     starvation_damage: float = 4.0
     health_recovery: float = 0.15
-    aging_starts_at: float = 65.0
     aging_damage_per_year: float = 1.8
     maximum_age: float = 105.0
     minimum_lifespan: float = 55.0
 
-    maturity_age: float = 16.0
     minimum_maturity_age: float = 14.0
     maximum_maturity_age: float = 20.0
     initial_age_minimum: float = 16.0
@@ -56,6 +55,12 @@ class SimulationConfig:
     reproduction_cost: float = 24.0
     reproduction_cooldown_years: float = 1.5
     newborn_energy: float = 35.0
+    gestation_years: float = 0.75
+    gestation_energy_cost_per_tick: float = 0.15
+    birth_energy_cost: float = 4.0
+    minimum_gestation_health_fraction: float = 0.25
+    dependent_age: float = 6.0
+    juvenile_metabolism_fraction: float = 0.6
 
     base_metabolism_minimum: float = 0.70
     base_metabolism_maximum: float = 1.25
@@ -64,19 +69,28 @@ class SimulationConfig:
     vision_minimum: int = 1
     vision_maximum: int = 4
     gene_mutation_probability: float = 0.015
-    gene_mutation_scale: float = 0.08
+    gene_crossover_probability: float = 0.65
     founder_genetic_variation: float = 0.25
     minimum_learning_rate: float = 0.02
     maximum_learning_rate: float = 0.22
     learning_metabolic_cost: float = 0.12
     vision_metabolic_cost: float = 0.08
+    constitution_metabolic_cost: float = 0.10
+    longevity_metabolic_cost: float = 0.08
+    fertility_metabolic_cost: float = 0.10
+    harvest_metabolic_cost: float = 0.08
+    early_maturation_health_cost: float = 0.15
+    early_maturation_lifespan_cost: float = 0.12
     cultural_trait_variation: float = 0.25
+    cultural_influence: float = 0.5
+    cultural_inheritance_noise: float = 0.04
     interaction_radius: int = 1
 
     hunger_weight: float = 4.0
     gather_weight: float = 2.4
     gather_inventory_emphasis: float = 0.55
     sharing_weight: float = 1.8
+    care_weight: float = 4.0
     reproduction_weight: float = 2.0
     movement_weight: float = 1.2
     movement_energy_cost: float = 0.10
@@ -120,6 +134,7 @@ class SimulationConfig:
     maximum_conception_probability: float = 0.85
     minimum_reproductive_health_fraction: float = 0.5
     aging_starts_fraction: float = 0.65
+    maximum_social_neighbors: int = 16
 
     metrics_interval: int = 10
     metrics_history_capacity: int = 10_000
@@ -139,6 +154,12 @@ class SimulationConfig:
             "material_inventory_capacity",
             "material_harvest_amount",
             "vessel_durability",
+            "exploratory_temperature",
+            "learned_preference_limit",
+            "maximum_social_neighbors",
+            "gestation_years",
+            "care_amount",
+            "dependent_age",
             "metrics_interval",
         )
         for name in positive:
@@ -155,12 +176,27 @@ class SimulationConfig:
             "aging_damage_per_year",
             "reproduction_cost",
             "reproduction_cooldown_years",
-            "mutation_rate",
+            "gene_mutation_probability",
+            "gene_crossover_probability",
+            "founder_genetic_variation",
+            "minimum_learning_rate",
+            "maximum_learning_rate",
+            "learning_metabolic_cost",
+            "vision_metabolic_cost",
+            "constitution_metabolic_cost",
+            "longevity_metabolic_cost",
+            "fertility_metabolic_cost",
+            "harvest_metabolic_cost",
+            "early_maturation_health_cost",
+            "early_maturation_lifespan_cost",
             "cultural_trait_variation",
+            "cultural_influence",
+            "cultural_inheritance_noise",
             "interaction_radius",
             "hunger_weight",
             "gather_weight",
             "sharing_weight",
+            "care_weight",
             "reproduction_weight",
             "movement_weight",
             "movement_energy_cost",
@@ -185,6 +221,23 @@ class SimulationConfig:
             "sea_movement_cost",
             "sea_exploration_weight",
             "voyage_weight",
+            "habit_preference_weight",
+            "social_imitation_weight",
+            "material_welfare_value",
+            "sharing_intrinsic_reward",
+            "reproduction_intrinsic_reward",
+            "research_intrinsic_reward",
+            "teaching_intrinsic_reward",
+            "movement_intrinsic_reward",
+            "maximum_conception_probability",
+            "minimum_reproductive_health_fraction",
+            "aging_starts_fraction",
+            "gestation_energy_cost_per_tick",
+            "birth_energy_cost",
+            "minimum_gestation_health_fraction",
+            "juvenile_metabolism_fraction",
+            "early_maturation_health_cost",
+            "early_maturation_lifespan_cost",
             "metrics_history_capacity",
             "event_log_capacity",
         )
@@ -199,6 +252,17 @@ class SimulationConfig:
             "movement_scarcity_emphasis",
             "cultural_transmission_rate",
             "cultural_trait_variation",
+            "cultural_influence",
+            "gene_mutation_probability",
+            "gene_crossover_probability",
+            "founder_genetic_variation",
+            "maximum_conception_probability",
+            "minimum_reproductive_health_fraction",
+            "aging_starts_fraction",
+            "minimum_gestation_health_fraction",
+            "juvenile_metabolism_fraction",
+            "early_maturation_health_cost",
+            "early_maturation_lifespan_cost",
         )
         for name in fractions:
             if not 0.0 <= getattr(self, name) <= 1.0:
@@ -221,12 +285,22 @@ class SimulationConfig:
             raise ValueError("initial inventory cannot exceed inventory_capacity")
         if self.reproduction_cost > self.reproduction_energy:
             raise ValueError("reproduction_cost cannot exceed reproduction_energy")
-        if self.maximum_age <= self.aging_starts_at:
-            raise ValueError("maximum_age must be greater than aging_starts_at")
-        if self.maturity_age >= self.maximum_age:
-            raise ValueError("maturity_age must be less than maximum_age")
         if self.research_gain_maximum < self.research_gain_minimum:
             raise ValueError("invalid research gain range")
+        if self.minimum_health_fraction <= 0.0:
+            raise ValueError("minimum_health_fraction must be positive")
+        if self.maximum_health_fraction < self.minimum_health_fraction:
+            raise ValueError("invalid health fraction range")
+        if self.minimum_lifespan <= 0.0 or self.maximum_age <= self.minimum_lifespan:
+            raise ValueError("invalid lifespan range")
+        if (
+            self.minimum_maturity_age < 0.0
+            or self.maximum_maturity_age < self.minimum_maturity_age
+            or self.maximum_maturity_age >= self.minimum_lifespan
+        ):
+            raise ValueError("invalid maturity range")
+        if self.maximum_learning_rate < self.minimum_learning_rate:
+            raise ValueError("invalid learning-rate range")
 
     def to_dict(self) -> Dict[str, Any]:
         return {field.name: getattr(self, field.name) for field in fields(self)}
