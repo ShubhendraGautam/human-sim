@@ -1,0 +1,12 @@
+{
+  "width": 64,
+  "height": 64,
+  "initial_population": 200,
+  "ticks_per_year": 12,
+  "cell_capacity": 24.0,
+  "initial_resource_fraction": 0.65,
+  "resource_regeneration": 0.18,
+  "metrics_interval": 10,
+  "metrics_history_capacity": 10000,
+  "event_log_capacity": 1000
+}

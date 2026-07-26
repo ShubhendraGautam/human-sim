@@ -1,88 +1,154 @@
-# Human-Sim: Multi-Agent Society Simulation
+# Human-Sim
 
-A distributed multi-agent simulation where humans live in simulated countries, interact with each other, and experience life events. Each human has stats (health, happiness, education, wealth) and makes decisions based on their state and environment.
+Human-Sim is a deterministic agent-based simulation for investigating how new
+population-level behavior appears as a society grows.
 
-## Project Structure
+The project does not script stories, institutions, or historical events. It
+defines a small substrate—space, finite resources, metabolism, local
+perception, action costs, reproduction, inheritance, and mutation—and lets
+outcomes arise from repeated local interactions.
 
-```
-human-sim/
-├── src/
-│   ├── countries/          # Country simulation logic
-│   ├── humans/             # Human agent class and behavior
-│   └── brains/             # Decision-making brains for agents
-├── tools/                  # Utility functions (name generation, gender assignment, etc.)
-├── sims/                   # Simulation scripts and entry points
-└── Dockerfile              # Container setup
-```
+## Current model
 
-## Getting Started
+Every run contains:
 
-### Prerequisites
-- Python 3.11+
-- Docker (optional, for containerized runs)
+- A bounded, optionally wrapping resource grid with heterogeneous carrying
+  capacity, regeneration, and user-defined land and sea.
+- User-defined countries that place founders in distinct regions with different
+  religions, cultural trait distributions, resources, and starting energy.
+- Persistent agents with energy, health, food inventory, age, position, and
+  inherited traits.
+- Local perception: agents can inspect nearby cells and interact only with
+  nearby agents.
+- Utility-based choices between eating, gathering, sharing, reproduction,
+  movement, research, teaching, construction, and rest.
+- Birth, trait inheritance and mutation, aging, starvation, and death.
+- Material gathering and an embodied seafaring path: curious coastal agents
+  experiment at a cost, knowledge spreads locally, vessels require materials,
+  and sea movement consumes energy and durability.
+- Aggregate metrics and a bounded diagnostic event log.
+- Seeded randomness. The same configuration, seed, and number of ticks produce
+  exactly the same state.
 
-### Installation
+Religion is currently a transmissible identity label, not a source of scripted
+behavior. Traditions influence founder trait distributions and can change
+through inheritance and contact. Wealth, markets, borders, and government
+remain intentionally absent until lower-level mechanics can produce them.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/human-sim.git
-   cd human-sim
-   ```
+## Run
 
-2. (Optional) Create a virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+Human-Sim requires Python 3.10 or newer and currently has no third-party runtime
+dependencies.
 
-### Running the Simulation
-
-Run a simple country and human simulation:
 ```bash
-python -m sims.simple_sim
+python3 -m sims.simple_sim
 ```
+
+Run a reproducible experiment:
+
+```bash
+python3 -m sims.simple_sim \
+  --population 1000 \
+  --width 64 \
+  --height 64 \
+  --ticks 240 \
+  --seed 42
+```
+
+Emit only machine-readable final metrics:
+
+```bash
+python3 -m sims.simple_sim --config configs/baseline.json --seed 42 --json
+```
+
+Run the included two-country island scenario:
+
+```bash
+python3 -m sims.simple_sim \
+  --scenario scenarios/two_islands.json \
+  --ticks 240 \
+  --seed 4
+```
+
+Scenario files contain the world configuration, rectangular country regions,
+founder profiles, and sea regions. This is the same serializable contract a
+future scenario editor can produce.
+
+Export a complete versioned UI snapshot:
+
+```bash
+python3 -m sims.simple_sim \
+  --scenario scenarios/two_islands.json \
+  --ticks 20 \
+  --snapshot > snapshot.json
+```
+
+Compare population sizes across repeated seeds:
+
+```bash
+python3 -m sims.scaling_experiment \
+  --populations 100,300,1000 \
+  --seeds 0,1,2 \
+  --ticks 120 \
+  --constant-density 0.25
+```
+
+The experiment emits one JSON record per run, including its complete
+configuration, seed, and final metrics. Omit `--constant-density` to study the
+effect of increasing crowding in a fixed world; include it to isolate population
+scale while keeping starting density approximately constant.
+
+Install an optional command-line entry point:
+
+```bash
+python3 -m pip install -e .
+human-sim --ticks 120 --seed 42
+```
+
+## Test
+
+The test suite uses the Python standard library:
+
+```bash
+python3 -m unittest discover -v
+```
+
+It checks deterministic replay, seed variation, resource bounds, inherited
+generations, metrics sampling, bounded event storage, and extinction caused by
+the simulated constraints rather than a scripted event.
 
 ## Architecture
 
-### Core Classes
+```text
+SimulationConfig (immutable rules)
+          |
+          v
+Simulation engine -----> aggregate metrics / optional event sink
+    |          |
+    v          v
+  World      Agents
+resource     local state
+grid/index   inherited traits
+```
 
-- **Human**: Individual agent with stats (health, happiness, education, wealth), a brain, and lifecycle methods
-- **Country**: Simulated nation with various ratings (healthcare, education, economy, culture) and citizen management
-- **Brain**: Decision-making component that humans use to think, remember, and decide actions
-- **SimpleBrain**: Basic implementation of Brain with memory and thought tracking
+The simulation is headless: rendering and analysis consume its outputs but
+never control agent behavior. `Simulation.snapshot()` exposes a versioned,
+columnar, JSON-serializable state for a future web or desktop UI. The engine
+owns its clock and random generator; it does not depend on wall-clock time.
 
-### Key Features
+The spatial index avoids all-pairs interaction. Per-tick work grows with the
+population and each agent's bounded perception area, rather than with the
+square of the population. Detailed design and extension rules are documented
+in [docs/architecture.md](docs/architecture.md).
 
-- Random human/country generation
-- Gender and name assignment
-- Citizens can be added to countries
-- Brain-based decision making
-- Async life cycle simulation (WIP)
+## Experimental discipline
 
-## Development
+Do not infer emergence from one visually interesting run. Compare repeated
+seeds across increasing population sizes while holding density and other
+conditions constant. A candidate emergent behavior should be measurable,
+repeatable as a distribution, and absent or qualitatively different below some
+scale or interaction regime.
 
-### Adding New Features
-
-- Add new brain types to `src/brains/`
-- Extend human behaviors in `src/humans/human_base.py`
-- Add country mechanics to `src/countries/countries_base.py`
-
-### Running Tests
-
-(Tests to be added)
-
-## Future Goals
-
-- Multi-container deployment (one human per Docker container)
-- Inter-human communication and networking
-- Persistent state logging and visualization
-- Scalable to thousands of agents
-- Environmental interactions (resources, trade, conflict)
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions welcome! Feel free to open issues and PRs.
+All model constants live in `SimulationConfig`. Changing them creates a new
+experimental condition. Recorded results should always include the complete
+configuration, seed, and code revision.
