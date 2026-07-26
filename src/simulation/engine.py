@@ -1112,6 +1112,7 @@ class Simulation:
                 if self._can_reproduce(neighbor)
                 and self._compatible_for_reproduction(agent, neighbor)
                 and not self._closely_related(agent, neighbor)
+                and self._reproductively_available(agent, neighbor)
             ]
             if can_reproduce
             else []
@@ -1192,6 +1193,32 @@ class Simulation:
                     ),
                 )
             )
+
+        # A bond is only useful when the couple is together: measured without
+        # this, partners drifted to a median of four cells apart and were
+        # adjacent barely a tenth of the time, so bonded reproduction could
+        # almost never fire. Reuniting is a preference, not a teleport.
+        partner_id = agent.partner_id
+        if partner_id is not None:
+            partner = self.agents.get(partner_id)
+            if partner is not None and not self._are_local(agent, partner):
+                step = self._step_toward(agent, partner)
+                if step != (agent.x, agent.y):
+                    separation = max(
+                        abs(agent.x - partner.x),
+                        abs(agent.y - partner.y),
+                    )
+                    append_option((
+                        config.bond_movement_weight
+                        * agent.traits.affiliation
+                        * min(separation / 4.0, 1.0)
+                        + (random_value() * 2.0 - 1.0) * noise_amplitude,
+                        Action(
+                            ActionKind.MOVE,
+                            agent_id,
+                            destination=step,
+                        ),
+                    ))
 
         social_weights = {}
         for neighbor in living_neighbors:
@@ -1314,6 +1341,17 @@ class Simulation:
             first.id != second.id
             and first.reproductive_role is not second.reproductive_role
         )
+
+    @staticmethod
+    def _reproductively_available(agent: Agent, other: Agent) -> bool:
+        """Enforce bond exclusivity in both directions.
+
+        A bonded agent reproduces only with its partner; an unbonded agent
+        cannot reproduce with someone else's partner.
+        """
+        if agent.partner_id is not None:
+            return other.id == agent.partner_id
+        return other.partner_id is None
 
     def _can_court(self, agent: Agent, candidate: Agent) -> bool:
         """Whether ``agent`` may propose a pair bond to ``candidate``.
@@ -1466,14 +1504,25 @@ class Simulation:
                 and action.target_id is not None
             )
         }
-        candidate_pairs = {
-            tuple(sorted((actor_id, action.target_id)))
-            for actor_id, action in reproduction_actions.items()
-            if (
-                action.target_id in reproduction_actions
-                and action.target_id != actor_id
+        # An established couple reproduces on one-sided intent: they have
+        # already found each other, so requiring them to choose the same action
+        # in the same tick again is what suppressed fertility. Everyone else
+        # still needs reciprocal intent.
+        candidate_pairs = set()
+        for actor_id, action in reproduction_actions.items():
+            target_id = action.target_id
+            if target_id == actor_id:
+                continue
+            actor = self.agents.get(actor_id)
+            target = self.agents.get(target_id)
+            if actor is None or target is None:
+                continue
+            bonded = (
+                actor.partner_id == target_id
+                and target.partner_id == actor_id
             )
-        }
+            if bonded or target_id in reproduction_actions:
+                candidate_pairs.add(tuple(sorted((actor_id, target_id))))
         ordered_pairs = sorted(
             candidate_pairs,
             key=lambda pair: (
@@ -2077,6 +2126,8 @@ class Simulation:
             or not self._compatible_for_reproduction(agent, partner)
             or not self._are_local(agent, partner)
             or self._closely_related(agent, partner)
+            or not self._reproductively_available(agent, partner)
+            or not self._reproductively_available(partner, agent)
             or not self._can_reproduce(agent)
             or not self._can_reproduce(partner)
         ):
@@ -2388,6 +2439,47 @@ class Simulation:
                 cause="childbirth",
             )
         return child
+
+    def _axis_step(self, current: int, target: int, size: int) -> int:
+        """Return -1, 0, or 1: the direction closing distance on one axis."""
+        delta = target - current
+        if delta == 0:
+            return 0
+        if self.config.wrap_world:
+            if delta > size // 2:
+                delta -= size
+            elif delta < -(size // 2):
+                delta += size
+        return 1 if delta > 0 else -1
+
+    def _step_toward(
+        self,
+        agent: Agent,
+        target: Agent,
+    ) -> Tuple[int, int]:
+        """Return the adjacent cell closing distance, or the current cell.
+
+        Movement resolution accepts a single step only, so this never proposes
+        a destination that ``_move`` would reject as too far, off-world, or sea
+        the agent cannot cross.
+        """
+        config = self.config
+        step_x = agent.x + self._axis_step(agent.x, target.x, config.width)
+        step_y = agent.y + self._axis_step(agent.y, target.y, config.height)
+        if config.wrap_world:
+            step_x %= config.width
+            step_y %= config.height
+        if (step_x, step_y) == (agent.x, agent.y):
+            return (agent.x, agent.y)
+        index = self.world.try_cell_index(step_x, step_y)
+        if index is None:
+            return (agent.x, agent.y)
+        if (
+            self.world.terrain[index] == Terrain.SEA
+            and agent.vessel_durability <= 0.0
+        ):
+            return (agent.x, agent.y)
+        return (step_x, step_y)
 
     def _are_local(self, first: Agent, second: Agent) -> bool:
         distance_x = abs(first.x - second.x)

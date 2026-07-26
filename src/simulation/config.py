@@ -199,6 +199,7 @@ class SimulationConfig:
     bond_acceptance_base: float = 0.55
     bond_separation_years: float = 3.0
     bond_dissolution_trust: float = -0.45
+    bond_movement_weight: float = 2.5
 
     metrics_interval: int = 10
     metrics_history_capacity: int = 10_000
@@ -392,6 +393,7 @@ class SimulationConfig:
             "communication_energy_cost",
             "courtship_weight",
             "courtship_energy_cost",
+            "bond_movement_weight",
             "metrics_history_capacity",
             "event_log_capacity",
         )
