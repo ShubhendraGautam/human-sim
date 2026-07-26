@@ -1071,6 +1071,39 @@ class Simulation:
                         )
                     )
 
+        # Courtship precedes reproduction. It is offered only to the unbonded,
+        # and unlike REPRODUCE it does not require the target to have chosen a
+        # matching action, so a couple pays the cost of finding each other once
+        # rather than once per child.
+        if (
+            agent.partner_id is None
+            and agent.energy >= config.courtship_energy_cost
+            and self._age_fecundity(agent) > 0.0
+        ):
+            courtship_weight = config.courtship_weight
+            affiliation = agent.traits.affiliation
+            for candidate in living_neighbors:
+                if not self._can_court(agent, candidate):
+                    continue
+                preference, _ = relationship_bonus(candidate)
+                candidate_condition = (
+                    candidate.body_condition
+                    + candidate.health
+                    / max(self._health_capacity(candidate), 1e-12)
+                ) / 2.0
+                append_option((
+                    courtship_weight
+                    * affiliation
+                    * (0.5 + 0.5 * candidate_condition)
+                    + preference
+                    + (random_value() * 2.0 - 1.0) * noise_amplitude,
+                    Action(
+                        ActionKind.COURT,
+                        agent_id,
+                        target_id=candidate.id,
+                    ),
+                ))
+
         can_reproduce = self._can_reproduce(agent)
         partners = (
             [
@@ -1282,6 +1315,140 @@ class Simulation:
             and first.reproductive_role is not second.reproductive_role
         )
 
+    def _can_court(self, agent: Agent, candidate: Agent) -> bool:
+        """Whether ``agent`` may propose a pair bond to ``candidate``.
+
+        Deliberately looser than :meth:`_can_reproduce`: an agent on a
+        reproductive cooldown or short of energy for a child may still form a
+        bond. Only lasting impediments disqualify a couple.
+        """
+        return (
+            agent.partner_id is None
+            and candidate.partner_id is None
+            and self._compatible_for_reproduction(agent, candidate)
+            and not self._closely_related(agent, candidate)
+            and self._age_fecundity(candidate) > 0.0
+        )
+
+    def _resolve_courtships(
+        self,
+        action_list: Sequence[Action],
+    ) -> Dict[int, bool]:
+        """Form pair bonds from one-sided proposals, with consent.
+
+        Unlike reproduction, the target need not have chosen a matching action.
+        Acceptance is a deterministic draw weighted by how well the pair
+        already knows one another, so removing the double coincidence does not
+        make bonding indiscriminate.
+
+        Several agents may court the same target in one tick. Proposals are
+        ordered by the same seeded key used for reproduction pairing and taken
+        greedily, so contention resolves reproducibly.
+        """
+        proposals = [
+            action
+            for action in action_list
+            if action.kind is ActionKind.COURT and action.target_id is not None
+        ]
+        if not proposals:
+            return {}
+
+        ordered = sorted(
+            proposals,
+            key=lambda action: (
+                self._pair_rng(
+                    action.actor_id,
+                    action.target_id,
+                    0xC0F,
+                ).random(),
+                -action.actor_id,
+                -action.target_id,
+            ),
+            reverse=True,
+        )
+        config = self.config
+        results: Dict[int, bool] = {
+            action.actor_id: False for action in proposals
+        }
+        for action in ordered:
+            suitor = self.agents.get(action.actor_id)
+            candidate = self.agents.get(action.target_id)
+            if suitor is None or candidate is None:
+                continue
+            if not self._can_court(suitor, candidate):
+                continue
+            if not self._are_local(suitor, candidate):
+                continue
+            if suitor.energy < config.courtship_energy_cost:
+                continue
+            suitor.energy -= config.courtship_energy_cost
+
+            # Familiarity raises the chance of acceptance without ever
+            # guaranteeing or forbidding it.
+            view = self.relationships.view(
+                candidate.relationship_slot,
+                suitor.id,
+                self.tick,
+            )
+            familiarity = 0.0
+            if view is not None:
+                encounters = view.encounters
+                familiarity = (
+                    encounters / (encounters + 3.0)
+                ) * max(view.trust, 0.0)
+            acceptance = config.bond_acceptance_base * (
+                0.5 + 0.5 * candidate.traits.affiliation
+            ) * (1.0 + familiarity)
+            draw = self._pair_rng(suitor.id, candidate.id, 0xB0D).random()
+            if draw >= min(acceptance, 1.0):
+                continue
+
+            self._bind_pair(suitor, candidate)
+            results[action.actor_id] = True
+        return results
+
+    def _bind_pair(self, first: Agent, second: Agent) -> None:
+        """Create the symmetric bond and seed mutual acquaintance."""
+        first.partner_id = second.id
+        second.partner_id = first.id
+        first.bond_since_tick = self.tick
+        second.bond_since_tick = self.tick
+        first.bond_last_together_tick = self.tick
+        second.bond_last_together_tick = self.tick
+        self.relationships.observe(
+            first.relationship_slot,
+            second.id,
+            self.tick,
+        )
+        self.relationships.observe(
+            second.relationship_slot,
+            first.id,
+            self.tick,
+        )
+        self._record(
+            Event(self.tick, "bond_formed", (first.id, second.id))
+        )
+
+    def _dissolve_bond(self, agent: Agent, kind: str) -> None:
+        """Clear a bond from both sides.
+
+        Safe when the partner is already gone, so death cleanup and the
+        maintenance rules can share one path. ``kind`` is the event name, which
+        records why the bond ended.
+        """
+        partner_id = agent.partner_id
+        agent.partner_id = None
+        agent.bond_since_tick = -1
+        agent.bond_last_together_tick = -1
+        if partner_id is None:
+            return
+        partner = self.agents.get(partner_id)
+        if partner is not None and partner.partner_id == agent.id:
+            partner.partner_id = None
+            partner.bond_since_tick = -1
+            partner.bond_last_together_tick = -1
+        self._record(Event(self.tick, kind, (agent.id, partner_id)))
+
     def _resolve(self, actions: Iterable[Action]) -> None:
         action_list = list(actions)
         counts: Counter[str] = Counter()
@@ -1289,6 +1456,7 @@ class Simulation:
             action.kind.value for action in action_list
         )
         failures: Counter[str] = Counter()
+        courtship_results = self._resolve_courtships(action_list)
         reproduced = set()
         reproduction_actions = {
             action.actor_id: action
@@ -1377,6 +1545,10 @@ class Simulation:
                 applied = self._care(agent, action.target_id)
             elif action.kind is ActionKind.COMMUNICATE:
                 applied = self._communicate(agent, action.target_id)
+            elif action.kind is ActionKind.COURT:
+                # Already settled in _resolve_courtships, which had to run
+                # before reproduction so a new bond is usable this tick.
+                applied = courtship_results.get(agent.id, False)
             elif action.kind is ActionKind.RESEARCH:
                 applied = self._research(agent)
             elif action.kind is ActionKind.TEACH:
@@ -2304,6 +2476,10 @@ class Simulation:
             return
         self._last_food_lost_on_death += agent.inventory
         self._last_material_lost_on_death += agent.material_inventory
+        # The bond is symmetric, so the survivor must be released here or
+        # validate_state would find a dangling partner.
+        if agent.partner_id is not None:
+            self._dissolve_bond(agent, "bond_ended_death")
         if agent.guardian_id is not None:
             guardian_dependents = self.dependents_by_guardian.get(
                 agent.guardian_id

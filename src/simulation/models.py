@@ -31,6 +31,7 @@ class ActionKind(str, Enum):
     GATHER = "gather"
     GATHER_MATERIAL = "gather_material"
     SHARE = "share"
+    COURT = "court"
     REPRODUCE = "reproduce"
     MOVE = "move"
     RESEARCH = "research"
@@ -121,6 +122,12 @@ class Agent:
     frailty: float = 0.0
     next_reproduction_tick: int = -1_000_000_000
     relationship_slot: int = -1
+    # A pair bond is symmetric and exclusive: whenever ``partner_id`` names
+    # a living agent, that agent's ``partner_id`` names this one. The
+    # invariant is checked in validate_state, so no central index is needed.
+    partner_id: Optional[int] = None
+    bond_since_tick: int = -1
+    bond_last_together_tick: int = -1
     infection_stage: InfectionStage = InfectionStage.SUSCEPTIBLE
     infection_ticks_remaining: int = 0
 

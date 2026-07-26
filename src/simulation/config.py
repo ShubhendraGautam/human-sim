@@ -192,6 +192,14 @@ class SimulationConfig:
     communication_energy_cost: float = 0.08
     social_success_memory_years: float = 1.0
 
+    # Pair bonding. Courtship is one-sided with consent, so a couple pays the
+    # cost of finding each other once rather than once per child.
+    courtship_weight: float = 1.2
+    courtship_energy_cost: float = 0.10
+    bond_acceptance_base: float = 0.55
+    bond_separation_years: float = 3.0
+    bond_dissolution_trust: float = -0.45
+
     metrics_interval: int = 10
     metrics_history_capacity: int = 10_000
     event_log_capacity: int = 1_000
@@ -260,6 +268,7 @@ class SimulationConfig:
             "relationship_half_life_years",
             "relationship_balance_limit",
             "social_success_memory_years",
+            "bond_separation_years",
             "gestation_years",
             "care_amount",
             "dependent_age",
@@ -361,6 +370,7 @@ class SimulationConfig:
             "teaching_intrinsic_reward",
             "movement_intrinsic_reward",
             "maximum_conception_probability",
+            "bond_acceptance_base",
             "minimum_reproductive_health_fraction",
             "aging_starts_fraction",
             "gestation_energy_cost_per_tick",
@@ -380,6 +390,8 @@ class SimulationConfig:
             "relationship_preference_weight",
             "communication_weight",
             "communication_energy_cost",
+            "courtship_weight",
+            "courtship_energy_cost",
             "metrics_history_capacity",
             "event_log_capacity",
         )
@@ -406,6 +418,7 @@ class SimulationConfig:
             "gene_crossover_probability",
             "founder_genetic_variation",
             "maximum_conception_probability",
+            "bond_acceptance_base",
             "minimum_reproductive_health_fraction",
             "aging_starts_fraction",
             "minimum_gestation_health_fraction",
@@ -538,6 +551,10 @@ class SimulationConfig:
             )
         if self.maximum_social_bonds > 255:
             raise ValueError("maximum_social_bonds cannot exceed 255")
+        if not -1.0 <= self.bond_dissolution_trust <= 1.0:
+            raise ValueError(
+                "bond_dissolution_trust must lie within remembered trust range"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         return {

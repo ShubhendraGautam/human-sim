@@ -289,6 +289,9 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
             round(agent.frailty, 8),
             agent.next_reproduction_tick,
             agent.relationship_slot,
+            agent.partner_id,
+            agent.bond_since_tick,
+            agent.bond_last_together_tick,
             int(agent.infection_stage),
             agent.infection_ticks_remaining,
         )
@@ -436,6 +439,10 @@ def snapshot(
             "generation": [agent.generation for agent in ordered],
             "parents": [agent.parents for agent in ordered],
             "guardian_id": [agent.guardian_id for agent in ordered],
+            "partner_id": [agent.partner_id for agent in ordered],
+            "bond_since_tick": [
+                agent.bond_since_tick for agent in ordered
+            ],
             "grandparents": [
                 agent.grandparent_ids for agent in ordered
             ],
@@ -672,6 +679,22 @@ def validate_state(simulation: "Simulation") -> None:
                 agent.guardian_id,
                 set(),
             ).add(agent.id)
+        if agent.partner_id is not None:
+            # A bond is symmetric, exclusive, and never points at a corpse or
+            # at the agent itself. Because it is stored on both agents rather
+            # than in a central index, this is the only thing keeping the two
+            # copies consistent.
+            assert agent.partner_id != agent.id
+            partner = simulation.agents.get(agent.partner_id)
+            assert partner is not None
+            assert partner.partner_id == agent.id
+            assert partner.reproductive_role is not agent.reproductive_role
+            assert agent.bond_since_tick >= 0
+            assert agent.bond_since_tick == partner.bond_since_tick
+            assert agent.bond_last_together_tick >= agent.bond_since_tick
+        else:
+            assert agent.bond_since_tick == -1
+            assert agent.bond_last_together_tick == -1
         assert len(agent.grandparent_ids) <= 4
         assert len(set(agent.grandparent_ids)) == len(
             agent.grandparent_ids
