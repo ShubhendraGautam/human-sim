@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    # The simulation core promises no third-party runtime dependencies.
+    # This job installs nothing, so that promise is enforced rather than
+    # documented: adding an import outside the standard library fails here.
+    name: core (python ${{ matrix.python-version }}, no dependencies)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # No install step: the interpreter has only the standard library, so an
+      # import added outside it fails here rather than in a user's checkout.
+      - name: Import the simulation core
+        run: python -c "import src.simulation; print(src.simulation.__name__)"
+
+      - name: Run the test suite
+        run: python -m unittest discover -v
+
+  service:
+    # Installs the optional API dependencies so the service tests actually
+    # execute instead of skipping through their ModuleNotFoundError guard.
+    name: service (optional API dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-api.txt
+
+      - name: Install optional API dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-api.txt
+
+      - name: Fail if service tests would silently skip
+        run: |
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          from src.human_sim_service.api import create_app
+          print("service test dependencies import cleanly")
+          PY
+
+      - name: Run the test suite
+        run: python -m unittest discover -v
+
+  ui:
+    name: ui (typecheck, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ui/.node-version
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
