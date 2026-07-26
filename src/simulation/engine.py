@@ -2,8 +2,18 @@ import math
 import random
 from array import array
 from collections import Counter, deque
+from operator import attrgetter
 from statistics import fmean
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Tuple
+from typing import (
+    Callable,
+    Deque,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from .brain import BrainState, choose_action
 from .config import CONFIG_SCHEMA_VERSION, SimulationConfig
@@ -46,6 +56,10 @@ MetricsSink = Callable[[Metrics], None]
 SNAPSHOT_SCHEMA_VERSION = 3
 MODEL_VERSION = "0.3"
 REFERENCE_TICKS_PER_YEAR = 12.0
+
+# Sorting the population by ID happens several times per tick; a C-level
+# attribute getter is measurably cheaper than an equivalent lambda.
+_agent_id = attrgetter("id")
 
 
 class Simulation:
@@ -129,19 +143,24 @@ class Simulation:
         self._last_food_lost_on_death = 0.0
         self._last_material_consumed = 0.0
         self._last_material_lost_on_death = 0.0
-        disease_damage = self._advance_disease()
-        deaths = self._apply_time_and_metabolism(disease_damage)
+        # Disease and metabolism observe the same agent set, so they share one
+        # deterministic ordering instead of sorting the population twice.
+        ordered_agents = self._ordered_agents()
+        disease_damage = self._advance_disease(ordered_agents)
+        deaths = self._apply_time_and_metabolism(
+            disease_damage,
+            ordered_agents,
+        )
         for agent_id, cause in deaths:
             self._remove_agent(agent_id, cause=cause)
         self._advance_pregnancies()
 
         self.world.rebuild_spatial_index(self.agents.values())
+        # Deaths and births changed the population, so the decision phase
+        # needs a fresh ordering rather than the one shared above.
         actions = [
             self._decide(agent, self._decision_rng(agent.id))
-            for agent in sorted(
-                self.agents.values(),
-                key=lambda item: item.id,
-            )
+            for agent in self._ordered_agents()
         ]
         self.rng.shuffle(actions)
         self._resolve(actions)
@@ -942,41 +961,21 @@ class Simulation:
         self._next_agent_id += 1
         return agent_id
 
-    def _advance_disease(self) -> Dict[int, float]:
-        """Advance one generic local SEIR process in O(N + occupied cells)."""
-
-        if not self.agents:
-            return {}
+    def _scan_exposures(
+        self,
+        ordered_agents: Sequence[Agent],
+        pressure: Sequence[float],
+        elapsed_years: float,
+    ) -> List[int]:
+        """Return IDs newly exposed by local infectious pressure."""
         config = self.config
-        elapsed_years = 1.0 / config.ticks_per_year
-        health_damage: Dict[int, float] = {}
-        cell_count = config.width * config.height
-        pressure = array("f", [0.0]) * cell_count
-        ordered_agents = sorted(
-            self.agents.values(),
-            key=lambda item: item.id,
-        )
-        infectious_cells: Counter[int] = Counter(
-            self.world.cell_index(agent.x, agent.y)
-            for agent in ordered_agents
-            if agent.infection_stage is InfectionStage.INFECTIOUS
-        )
-        for source_cell, count in infectious_cells.items():
-            x, y = self.world.coordinates(source_cell)
-            for target_cell in self.world.nearby_cell_indices(
-                x,
-                y,
-                config.disease_contact_radius,
-            ):
-                pressure[target_cell] += count
-
-        newly_exposed = []
+        transmission_rate = config.disease_transmission_rate_per_year
+        cell_index = self.world.cell_index
+        newly_exposed: List[int] = []
         for agent in ordered_agents:
             if agent.infection_stage is not InfectionStage.SUSCEPTIBLE:
                 continue
-            local_pressure = pressure[
-                self.world.cell_index(agent.x, agent.y)
-            ]
+            local_pressure = pressure[cell_index(agent.x, agent.y)]
             if local_pressure <= 0.0:
                 continue
             susceptibility = host_susceptibility(
@@ -987,14 +986,54 @@ class Simulation:
                 agent.frailty,
             )
             probability = transmission_probability(
-                config.disease_transmission_rate_per_year,
+                transmission_rate,
                 local_pressure,
                 susceptibility,
                 elapsed_years,
             )
             if self._stable_uniform(agent.id, 0xD15) < probability:
                 newly_exposed.append(agent.id)
+        return newly_exposed
 
+    def _advance_disease(
+        self,
+        ordered_agents: Optional[Sequence[Agent]] = None,
+    ) -> Dict[int, float]:
+        """Advance one generic local SEIR process in O(N + occupied cells)."""
+
+        if not self.agents:
+            return {}
+        config = self.config
+        elapsed_years = 1.0 / config.ticks_per_year
+        health_damage: Dict[int, float] = {}
+        if ordered_agents is None:
+            ordered_agents = self._ordered_agents()
+        infectious_cells: Counter[int] = Counter(
+            self.world.cell_index(agent.x, agent.y)
+            for agent in ordered_agents
+            if agent.infection_stage is InfectionStage.INFECTIOUS
+        )
+
+        newly_exposed = []
+        # With nobody infectious the pressure grid is uniformly zero, so the
+        # exposure scan cannot expose anyone. Skip both rather than allocating
+        # and reading a full-world array every tick.
+        if infectious_cells:
+            cell_count = config.width * config.height
+            pressure = array("f", [0.0]) * cell_count
+            for source_cell, count in infectious_cells.items():
+                x, y = self.world.coordinates(source_cell)
+                for target_cell in self.world.nearby_cell_indices(
+                    x,
+                    y,
+                    config.disease_contact_radius,
+                ):
+                    pressure[target_cell] += count
+            newly_exposed = self._scan_exposures(
+                ordered_agents,
+                pressure,
+                elapsed_years,
+            )
         for agent in ordered_agents:
             stage = agent.infection_stage
             if stage is InfectionStage.EXPOSED:
@@ -1107,9 +1146,18 @@ class Simulation:
         progress = position * position * (3.0 - 2.0 * position)
         return floor + (1.0 - floor) * progress
 
+    def _ordered_agents(self) -> List[Agent]:
+        """Return living agents in ascending ID order.
+
+        Every phase iterates through this rather than dict order so that
+        results never depend on insertion history.
+        """
+        return sorted(self.agents.values(), key=_agent_id)
+
     def _apply_time_and_metabolism(
         self,
         disease_damage: Optional[Dict[int, float]] = None,
+        ordered_agents: Optional[Sequence[Agent]] = None,
     ) -> List[Tuple[int, str]]:
         config = self.config
         disease_damage = disease_damage or {}
@@ -1122,10 +1170,9 @@ class Simulation:
             -config.food_spoilage_rate_per_year * elapsed_years
         )
         deaths: List[Tuple[int, str]] = []
-        for agent in sorted(
-            self.agents.values(),
-            key=lambda item: item.id,
-        ):
+        if ordered_agents is None:
+            ordered_agents = self._ordered_agents()
+        for agent in ordered_agents:
             damage_by_cause: Dict[str, float] = {}
             infection_damage = disease_damage.get(agent.id, 0.0)
             if infection_damage > 0.0:
@@ -1485,101 +1532,119 @@ class Simulation:
             if neighbor_id in self.agents
         ]
 
+        view_for = relationship_views.get
+        preference_scale = (
+            config.relationship_preference_weight * agent.traits.affiliation
+        )
+        balance_limit = config.relationship_balance_limit
+
         def relationship_bonus(other: Agent) -> Tuple[float, float]:
-            view = relationship_views.get(other.id)
+            view = view_for(other.id)
             if view is None:
                 return 0.0, 0.0
-            confidence = view.encounters / (view.encounters + 3.0)
+            encounters = view.encounters
+            confidence = encounters / (encounters + 3.0)
             preference = (
-                config.relationship_preference_weight
-                * agent.traits.affiliation
+                preference_scale
                 * confidence
-                * (
-                    view.trust
-                    + view.balance / config.relationship_balance_limit
-                )
+                * (view.trust + view.balance / balance_limit)
             )
             return preference, confidence
 
+        # Each of these loops runs once per attended neighbor, so values that
+        # depend only on the deciding agent are computed once above them.
+        maximum_energy = config.maximum_energy
+        inventory_capacity = config.inventory_capacity
+        agent_id = agent.id
+        append_option = options.append
+
         if agent.inventory >= config.share_amount:
+            sharing_weight = config.sharing_weight
+            generosity = self._temperament(agent, "generosity")
             for recipient in living_neighbors:
-                if recipient.inventory >= config.inventory_capacity:
+                if recipient.inventory >= inventory_capacity:
                     continue
                 recipient_need = max(
-                    1.0 - recipient.energy / config.maximum_energy,
+                    1.0 - recipient.energy / maximum_energy,
                     0.0,
                 )
                 preference, _ = relationship_bonus(recipient)
                 share_utility = (
-                    config.sharing_weight
-                    * self._temperament(agent, "generosity")
+                    sharing_weight
+                    * generosity
                     * recipient_need
                     + preference
                 )
-                options.append((
+                append_option((
                     share_utility
                     + (random_value() * 2.0 - 1.0) * noise_amplitude,
                     Action(
                         ActionKind.SHARE,
-                        agent.id,
+                        agent_id,
                         target_id=recipient.id,
                     ),
                 ))
 
         if agent.inventory >= config.care_amount:
+            dependent_age = config.dependent_age
+            care_weight = config.care_weight
             for dependent in living_neighbors:
                 if (
-                    dependent.age >= config.dependent_age
-                    or dependent.inventory >= config.inventory_capacity
+                    dependent.age >= dependent_age
+                    or dependent.inventory >= inventory_capacity
                     or not (
-                        dependent.guardian_id == agent.id
-                        or agent.id in (dependent.parents or ())
+                        dependent.guardian_id == agent_id
+                        or agent_id in (dependent.parents or ())
                     )
                 ):
                     continue
                 need = max(
-                    1.0 - dependent.energy / config.maximum_energy,
+                    1.0 - dependent.energy / maximum_energy,
                     0.0,
                 )
-                options.append((
-                    config.care_weight * need
+                append_option((
+                    care_weight * need
                     + (random_value() * 2.0 - 1.0) * noise_amplitude,
                     Action(
                         ActionKind.CARE,
-                        agent.id,
+                        agent_id,
                         target_id=dependent.id,
                     ),
                 ))
 
         if agent.knows_seafaring:
+            teaching_weight = config.teaching_weight
+            generosity = self._temperament(agent, "generosity")
             for learner in living_neighbors:
                 if learner.knows_seafaring:
                     continue
                 preference, _ = relationship_bonus(learner)
-                options.append((
-                    config.teaching_weight
-                    * self._temperament(agent, "generosity")
+                append_option((
+                    teaching_weight
+                    * generosity
                     * self._temperament(learner, "curiosity")
                     + preference
                     + (random_value() * 2.0 - 1.0) * noise_amplitude,
                     Action(
                         ActionKind.TEACH,
-                        agent.id,
+                        agent_id,
                         target_id=learner.id,
                     ),
                 ))
 
         if agent.energy >= config.communication_energy_cost:
+            communication_scale = (
+                config.communication_weight * agent.traits.affiliation
+            )
             for neighbor in living_neighbors:
                 _, confidence = relationship_bonus(neighbor)
-                options.append((
-                    config.communication_weight
-                    * agent.traits.affiliation
+                append_option((
+                    communication_scale
                     * (0.25 + 0.75 * (1.0 - confidence))
                     + (random_value() * 2.0 - 1.0) * noise_amplitude,
                     Action(
                         ActionKind.COMMUNICATE,
-                        agent.id,
+                        agent_id,
                         target_id=neighbor.id,
                     ),
                 ))

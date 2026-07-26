@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+from src.human_sim_service.contracts import _copy_mapping
 from src.human_sim_service import (
     AGENT_DETAIL_SCHEMA_VERSION,
     FRAME_SCHEMA_VERSION,
@@ -192,6 +193,51 @@ class ServiceContractTests(unittest.TestCase):
         self.assertIn("agents", snapshot)
         self.assertIn("relationships", snapshot)
         self.assertIn("genome_a", snapshot["agents"])
+
+
+class ProjectionOwnershipTests(unittest.TestCase):
+    """A projection must never alias mutable backend or engine state."""
+
+    def test_nested_containers_are_rebuilt(self) -> None:
+        source = {
+            "layer": [1.0, 2.0, 3.0],
+            "nested": {"inner": [{"deep": [4.0]}]},
+            "scalar": 7,
+        }
+
+        copied = _copy_mapping(source)
+
+        self.assertEqual(copied, source)
+        self.assertIsNot(copied["layer"], source["layer"])
+        self.assertIsNot(copied["nested"], source["nested"])
+        self.assertIsNot(copied["nested"]["inner"], source["nested"]["inner"])
+        self.assertIsNot(
+            copied["nested"]["inner"][0]["deep"],
+            source["nested"]["inner"][0]["deep"],
+        )
+
+    def test_mutating_a_copy_leaves_the_source_untouched(self) -> None:
+        source = {"layer": [1.0, 2.0], "nested": {"inner": [{"deep": [4.0]}]}}
+
+        copied = _copy_mapping(source)
+        copied["layer"].append(99.0)
+        copied["nested"]["inner"][0]["deep"][0] = -1.0
+
+        self.assertEqual(source["layer"], [1.0, 2.0])
+        self.assertEqual(source["nested"]["inner"][0]["deep"], [4.0])
+
+    def test_frame_payload_does_not_alias_engine_arrays(self) -> None:
+        config, scenario = small_definition()
+        manager = RunManager(id_factory=lambda: "ownership-run")
+        manager.create(config=config, seed=5, scenario=scenario)
+        frame = manager.frame("ownership-run", include_resources=True)
+
+        food = frame["resources"]["food"]
+        original = list(food)
+        food[0] = 12345.0
+        refetched = manager.frame("ownership-run", include_resources=True)
+
+        self.assertEqual(refetched["resources"]["food"], original)
 
 
 if __name__ == "__main__":

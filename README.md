@@ -117,6 +117,20 @@ configuration, seed, and final metrics. Omit `--constant-density` to study the
 effect of increasing crowding in a fixed world; include it to isolate population
 scale while keeping starting density approximately constant.
 
+Measure engine and projection cost:
+
+```bash
+python3 -m sims.profile_engine \
+  --populations 1000,5000,10000 \
+  --ticks 10
+```
+
+Each record reports build time, per-tick cost, `measure()` cost, and service
+manifest and frame cost with serialized byte counts, alongside the configuration
+and code revision. Add `--profile` for a `cProfile` table identifying which
+functions dominate. Wall-clock timing varies substantially on a loaded machine,
+so compare alternating runs rather than one measurement.
+
 Install an optional command-line entry point:
 
 ```bash
@@ -166,8 +180,10 @@ python3 -m unittest discover -v
 It checks deterministic replay, genome inheritance and mutation, resource
 conservation and seasons, chronic development, frailty, reciprocal
 reproduction, gestational investment, caregiver indexing, disease
-transmission, bounded social memory, snapshot contracts, and extinction caused
-by simulated constraints rather than a scripted event.
+transmission, bounded social memory, snapshot contracts, neighborhood and
+tick-ordering invariants relied on by the optimized decision path, projection
+ownership, and extinction caused by simulated constraints rather than a
+scripted event.
 
 ## Architecture
 

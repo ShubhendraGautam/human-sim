@@ -27,6 +27,7 @@ class World:
         "has_sea",
         "country_land_cells",
         "_occupants",
+        "_interior_offsets",
         "last_food_harvested",
         "last_food_regenerated",
         "last_material_harvested",
@@ -131,6 +132,7 @@ class World:
                 * variation
             )
         self._occupants: Dict[int, List[int]] = {}
+        self._interior_offsets: Dict[int, Tuple[int, ...]] = {}
         self.last_food_harvested = 0.0
         self.last_food_regenerated = 0.0
         self.last_material_harvested = 0.0
@@ -422,6 +424,19 @@ class World:
 
         return sorted(selected)
 
+    def _offsets(self, radius: int) -> Tuple[int, ...]:
+        """Return row-major offsets for an unclipped square neighborhood."""
+        cached = self._interior_offsets.get(radius)
+        if cached is None:
+            width = self.config.width
+            cached = tuple(
+                row * width + column
+                for row in range(-radius, radius + 1)
+                for column in range(-radius, radius + 1)
+            )
+            self._interior_offsets[radius] = cached
+        return cached
+
     def nearby_cell_indices(
         self,
         x: int,
@@ -429,11 +444,17 @@ class World:
         radius: int,
     ) -> Sequence[int]:
         if not self.config.wrap_world:
-            minimum_x = max(0, x - radius)
-            maximum_x = min(self.config.width - 1, x + radius)
-            minimum_y = max(0, y - radius)
-            maximum_y = min(self.config.height - 1, y + radius)
             width = self.config.width
+            height = self.config.height
+            # Agents away from every edge share one offset pattern, so the
+            # common case becomes a flat shift instead of a nested loop.
+            if radius <= x < width - radius and radius <= y < height - radius:
+                base = y * width + x
+                return [base + offset for offset in self._offsets(radius)]
+            minimum_x = max(0, x - radius)
+            maximum_x = min(width - 1, x + radius)
+            minimum_y = max(0, y - radius)
+            maximum_y = min(height - 1, y + radius)
             return [
                 row * width + column
                 for row in range(minimum_y, maximum_y + 1)
@@ -456,58 +477,71 @@ class World:
         can_cross_sea: bool,
         exploration: float,
     ) -> Tuple[int, int]:
+        agent_x = agent.x
+        agent_y = agent.y
         best_score = float("-inf")
-        best_step = (agent.x, agent.y)
-        width = self.config.width
-        height = self.config.height
-        wraps = self.config.wrap_world
+        best_step = (agent_x, agent_y)
+        config = self.config
+        width = config.width
+        height = config.height
+        wraps = config.wrap_world
         visited = set() if wraps else None
         vision = agent.traits.vision
 
+        # This loop runs up to (2 * vision + 1) ** 2 times per agent per tick
+        # and dominates the decision phase, so every value it reads is bound
+        # to a local before entering it.
+        resources = self.resources
+        materials = self.materials
+        terrain = self.terrain
+        occupants_get = self._occupants.get
+        material_weight = config.material_attraction_weight
+        crowding_weight = config.crowding_weight
+        blocks_sea = self.has_sea and not can_cross_sea
+        sea = Terrain.SEA
+        random_value = rng.random
+
         for offset_y in range(-vision, vision + 1):
-            target_y = agent.y + offset_y
+            target_y = agent_y + offset_y
             if wraps:
                 target_y %= height
             elif target_y < 0 or target_y >= height:
                 continue
+            row = target_y * width
+            step_y = agent_y + (offset_y > 0) - (offset_y < 0)
+            if wraps:
+                step_y %= height
+            elif step_y < 0 or step_y >= height:
+                continue
+            step_row = step_y * width
             for offset_x in range(-vision, vision + 1):
-                target_x = agent.x + offset_x
+                target_x = agent_x + offset_x
                 if wraps:
                     target_x %= width
                 elif target_x < 0 or target_x >= width:
                     continue
-                cell = target_y * width + target_x
+                cell = row + target_x
                 if visited is not None:
                     if cell in visited:
                         continue
                     visited.add(cell)
 
-                step_x = agent.x + (offset_x > 0) - (offset_x < 0)
-                step_y = agent.y + (offset_y > 0) - (offset_y < 0)
+                step_x = agent_x + (offset_x > 0) - (offset_x < 0)
                 if wraps:
                     step_x %= width
-                    step_y %= height
-                elif (
-                    step_x < 0
-                    or step_x >= width
-                    or step_y < 0
-                    or step_y >= height
-                ):
+                elif step_x < 0 or step_x >= width:
                     continue
-                step_index = step_y * width + step_x
-                if (
-                    self.has_sea
-                    and self.terrain[step_index] == Terrain.SEA
-                    and not can_cross_sea
-                ):
+                step_index = step_row + step_x
+                if blocks_sea and terrain[step_index] == sea:
                     continue
+                crowd = occupants_get(cell)
                 score = (
-                    self.resources[cell]
-                    + self.materials[cell]
-                    * self.config.material_attraction_weight
-                    - len(self._occupants.get(cell, ()))
-                    * self.config.crowding_weight
-                    + rng.random() * exploration
+                    resources[cell]
+                    + materials[cell]
+                    * material_weight
+                    - (len(crowd) if crowd else 0)
+                    * crowding_weight
+                    + random_value() * exploration
                 )
                 if score > best_score:
                     best_score = score

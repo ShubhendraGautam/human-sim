@@ -5,7 +5,6 @@ boundary between a simulation backend and transports such as HTTP, WebSocket,
 or an in-process test harness.
 """
 
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Dict, Mapping, Optional
 
@@ -27,10 +26,35 @@ RUN_STATUSES = frozenset(
 )
 
 
+_CONTAINERS = frozenset((dict, list, tuple))
+
+
+def _copy_json(value: object) -> object:
+    """Copy a JSON-shaped tree without ``deepcopy`` bookkeeping.
+
+    Projections are dicts, lists, and scalars only. Scalars are immutable and
+    can be shared, so only the containers are rebuilt. ``deepcopy`` maintains a
+    memo table and dispatches per element, which dominates manifest cost once
+    world layers reach tens of thousands of cells.
+    """
+
+    kind = type(value)
+    if kind is dict:
+        return {key: _copy_json(item) for key, item in value.items()}
+    if kind is list or kind is tuple:
+        # World layers and agent columns are flat numeric lists. Detecting
+        # that with cheap type checks beats a recursive call per cell.
+        for item in value:
+            if type(item) in _CONTAINERS:
+                return [_copy_json(item) for item in value]
+        return list(value)
+    return value
+
+
 def _copy_mapping(values: Mapping[str, object]) -> Dict[str, object]:
     """Return an owned JSON tree rather than leaking mutable backend data."""
 
-    return deepcopy(dict(values))
+    return {key: _copy_json(item) for key, item in values.items()}
 
 
 @dataclass(frozen=True, slots=True)

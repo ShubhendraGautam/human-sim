@@ -149,19 +149,58 @@ Do not assign one operating-system process or container to every agent. If a
 single process becomes insufficient, partition spatial regions into a modest
 number of workers and exchange boundary actions between ticks.
 
+### Measured cost
+
+Performance claims here are reproducible with `sims/profile_engine.py`, which
+reports build time, per-tick cost, `measure()` cost, and service projection
+cost, and can emit a `cProfile` table with `--profile`.
+
+Profiling five thousand agents confirms that bounded neighbor evaluation and
+action scoring—not scenario parsing or the UI API—dominate. `_decide` accounts
+for roughly 70% of a tick, `World.best_neighbor` for 13-16%, and per-agent
+`random.Random` construction in `_decision_rng` for a further 8-9%.
+
+Two caveats matter when repeating this. First, cost is spread across many small
+interpreter operations rather than a single hot loop, so pure-Python tuning
+yields modest gains: hoisting invariant lookups out of the neighbor loops,
+caching neighborhood offsets, and sharing one per-tick agent ordering together
+bought about 1.15x. Second, wall-clock measurement on a loaded machine varies by
+up to 2x between identical runs; compare alternating arms and prefer the minimum
+over the mean.
+
+The remaining structural target is allocation: `_decide` constructs an `Action`
+for every scored option and discards all but one. Deferring construction until
+after scoring is the next profiled candidate.
+
+Packed genomes are two integers per agent; terrain, resources, and relationships
+already use flat numeric storage; cross-agent effects use IDs and explicit
+phases. A C, Cython, Rust, or array-backed decision kernel can therefore sit
+behind `Simulation` while the readable Python engine remains the behavioral
+reference.
+
+NumPy was evaluated for this seam and rejected for the engine. Scalar reads from
+an `ndarray` cost about 3.5x an `array("d")` read, and the decision loop is
+scalar-read bound, so array-backed world layers would slow the dominant path to
+speed up the O(cells) sweeps that are only a few percent of a tick at typical
+density. Vectorization remains attractive only for large, sparsely populated
+worlds, and belongs with the native kernel rather than as a core dependency.
+
 ### Native-code boundary
 
-C is useful at a measured, stable hot loop. Current profiling at ten thousand
-agents identifies bounded neighbor evaluation and action scoring—not scenario
-parsing or the UI API—as the dominant Python work. Packed genomes are two
-integers per agent; terrain, resources, and relationships already use flat
-numeric storage; cross-agent effects use IDs and explicit phases. A C, Cython,
-Rust, or NumPy-backed decision kernel can therefore sit behind `Simulation`
-while the readable Python engine remains the behavioral reference.
+C is useful at a measured, stable hot loop, and native work should begin only
+after profiling identifies one.
 
 Every future native backend must pass the same deterministic, parity, and
 invariant tests as the reference engine. Native acceleration should preserve
 the scenario JSON and snapshot schema rather than create a second model.
+
+Optimization of the reference engine itself is held to a stricter rule: it must
+not change results at all. A change that alters any agent decision is a new
+model version and a new experimental condition, not a speedup. Verify by
+capturing `state_digest()` across a spread of configurations and seeds before
+the change and asserting equality afterwards; the existing determinism tests
+compare one simulation against another and will not catch a uniform shift in
+the random stream.
 
 ## Measuring emergence
 
