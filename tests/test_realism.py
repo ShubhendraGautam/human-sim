@@ -32,7 +32,11 @@ class LifeHistoryTests(unittest.TestCase):
                 )
             return condition
 
-        self.assertAlmostEqual(after_one_year(4), after_one_year(12), places=12)
+        self.assertAlmostEqual(
+            after_one_year(4),
+            after_one_year(12),
+            places=12,
+        )
         self.assertAlmostEqual(after_one_year(4), math.exp(-2.0), places=12)
 
     def test_prenatal_and_childhood_condition_form_a_weighted_history(
@@ -265,7 +269,9 @@ class DiseaseTests(unittest.TestCase):
         )
         self.assertEqual(first.total_infections, second.total_infections)
 
-    def test_infectious_health_damage_has_an_observed_death_cause(self) -> None:
+    def test_infectious_health_damage_has_an_observed_death_cause(
+        self,
+    ) -> None:
         simulation = Simulation(
             SimulationConfig(
                 width=1,
@@ -391,7 +397,9 @@ class DemographyIntegrationTests(unittest.TestCase):
 
 
 class AttentionTests(unittest.TestCase):
-    def test_dense_neighbor_attention_is_bounded_unique_and_local(self) -> None:
+    def test_dense_neighbor_attention_is_bounded_unique_and_local(
+        self,
+    ) -> None:
         simulation = Simulation(
             SimulationConfig(
                 width=1,

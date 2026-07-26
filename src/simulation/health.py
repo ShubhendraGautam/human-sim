@@ -17,7 +17,7 @@ def transmission_probability(
     susceptibility: float,
     elapsed_years: float,
 ) -> float:
-    """Convert local infectious pressure into a bounded interval probability."""
+    """Convert local infectious pressure into a bounded probability."""
 
     for value, name in (
         (annual_rate, "annual_rate"),

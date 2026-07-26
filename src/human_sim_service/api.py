@@ -55,7 +55,7 @@ class ResetRunRequest(BaseModel):
 
 
 class ValidateScenarioRequest(BaseModel):
-    """Validate and normalize scenario-editor input through the engine rules."""
+    """Validate scenario-editor input against the engine rules."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -64,7 +64,7 @@ class ValidateScenarioRequest(BaseModel):
 
 
 def create_app(manager: Optional[RunManager] = None) -> FastAPI:
-    """Build an application with an injectable run registry for tests/hosting."""
+    """Build an app with an injectable run registry for tests."""
 
     runs = manager or RunManager()
     app = FastAPI(

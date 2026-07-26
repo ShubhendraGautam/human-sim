@@ -185,6 +185,28 @@ tick-ordering invariants relied on by the optimized decision path, projection
 ownership, and extinction caused by simulated constraints rather than a
 scripted event.
 
+Four tests skip unless the optional API dependencies are installed. Install
+`requirements-api.txt` to run them.
+
+Lint with the project style, configured in `setup.cfg`:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m flake8 src sims tests
+```
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs four jobs on every push and pull request:
+
+- **lint** — flake8 at the project's 79-column style.
+- **core** — the suite on Python 3.10 through 3.14 with nothing installed, so
+  the zero-dependency promise above is enforced rather than merely stated.
+- **service** — the suite with the optional API dependencies present, after
+  asserting they import, so the four guarded tests cannot silently skip.
+- **ui** — typecheck, test, and build on the Node version in
+  `ui/.node-version`.
+
 ## Architecture
 
 ```text

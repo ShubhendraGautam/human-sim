@@ -56,7 +56,9 @@ class SimulationTests(unittest.TestCase):
             self.assertGreaterEqual(material, 0.0)
             self.assertLessEqual(material, capacity)
 
-    def test_starvation_can_end_a_population_without_scripted_death(self) -> None:
+    def test_starvation_can_end_a_population_without_scripted_death(
+        self,
+    ) -> None:
         config = SimulationConfig(
             width=4,
             height=4,

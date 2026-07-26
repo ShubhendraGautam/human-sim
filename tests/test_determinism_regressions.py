@@ -23,7 +23,9 @@ class DeterminismRegressionTests(unittest.TestCase):
 
         self.assertEqual(first.state_digest(), second.state_digest())
 
-    def test_pregnancy_dictionary_order_does_not_change_birth_ids(self) -> None:
+    def test_pregnancy_dictionary_order_does_not_change_birth_ids(
+        self,
+    ) -> None:
         config = SimulationConfig(
             width=1,
             height=1,

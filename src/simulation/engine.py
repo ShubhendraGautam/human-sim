@@ -390,7 +390,7 @@ class Simulation:
         )
 
     def state_digest(self) -> Tuple[object, ...]:
-        """Stable compact state representation used for reproducibility checks."""
+        """Compact stable state used for reproducibility checks."""
 
         agents = tuple(
             (
@@ -497,7 +497,7 @@ class Simulation:
         include_agents: bool = True,
         include_relationships: bool = True,
     ) -> Dict[str, object]:
-        """Return a versioned, JSON-serializable state for UIs and recorders."""
+        """Return versioned JSON state for UIs and recorders."""
 
         result: Dict[str, object] = {
             "schema_version": SNAPSHOT_SCHEMA_VERSION,
@@ -1445,7 +1445,10 @@ class Simulation:
                 current_tick=self.tick,
             )
 
-        if current_resource > 0.0 and agent.inventory < config.inventory_capacity:
+        if (
+            current_resource > 0.0
+            and agent.inventory < config.inventory_capacity
+        ):
             gather_utility = config.gather_weight * (
                 config.gather_inventory_emphasis
                 * max(inventory_space, 0.0)
@@ -2315,7 +2318,9 @@ class Simulation:
             channel=0x7EA,
             signal_values={"curiosity": 1.0},
         )
-        self._record(Event(self.tick, "teach_seafaring", (agent.id, target.id)))
+        self._record(
+            Event(self.tick, "teach_seafaring", (agent.id, target.id))
+        )
         return True
 
     def _build_vessel(self, agent: Agent) -> bool:

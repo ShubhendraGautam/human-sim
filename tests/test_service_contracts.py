@@ -160,7 +160,9 @@ class ServiceContractTests(unittest.TestCase):
         self.assertEqual(frame.tick, 0)
         self.assertEqual(frame.metrics["tick"], 0)
 
-    def test_agent_detail_is_deep_json_projection_with_string_ids(self) -> None:
+    def test_agent_detail_is_deep_json_projection_with_string_ids(
+        self,
+    ) -> None:
         agent_id = self.manager.frame("contract-run")["agents"]["id"][0]
 
         detail = self.manager.agent_detail("contract-run", agent_id)

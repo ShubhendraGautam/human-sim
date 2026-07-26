@@ -116,7 +116,9 @@ class BrainTests(unittest.TestCase):
 
 
 class ReproductionTests(unittest.TestCase):
-    def test_resolution_enforces_role_locality_and_fresh_child_state(self) -> None:
+    def test_resolution_enforces_role_locality_and_fresh_child_state(
+        self,
+    ) -> None:
         config = SimulationConfig(
             width=5,
             height=5,

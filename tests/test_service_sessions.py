@@ -200,7 +200,9 @@ class ServiceSessionTests(unittest.TestCase):
         self.assertEqual(advanced["tick"], 1)
         self.assertEqual(advanced["sequence"], 3)
 
-    def test_manager_accepts_json_mappings_for_config_and_scenario(self) -> None:
+    def test_manager_accepts_json_mappings_for_config_and_scenario(
+        self,
+    ) -> None:
         manager = RunManager(id_factory=lambda: "mapped")
         manifest = manager.create(
             config={

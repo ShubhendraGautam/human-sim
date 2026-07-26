@@ -61,7 +61,10 @@ class DiseaseMortalityRegressionTests(unittest.TestCase):
         self.assertEqual(simulation.deaths_by_cause["infection"], 1)
         self.assertEqual(simulation.total_recoveries, 0)
         self.assertFalse(
-            any(event.kind == "infection_recovery" for event in simulation.events)
+            any(
+                event.kind == "infection_recovery"
+                for event in simulation.events
+            )
         )
 
 
@@ -163,7 +166,9 @@ class PregnancyRegressionTests(unittest.TestCase):
 
         return max(simulation.agents.values(), key=lambda agent: agent.id)
 
-    def test_postpartum_cooldown_never_shortens_existing_cooldown(self) -> None:
+    def test_postpartum_cooldown_never_shortens_existing_cooldown(
+        self,
+    ) -> None:
         simulation, gestational_parent, other_parent = (
             self._reproductive_simulation(
                 gestation_years=1.0 / 12.0,
@@ -197,7 +202,9 @@ class PregnancyRegressionTests(unittest.TestCase):
             ),
         )
 
-    def test_prenatal_condition_is_time_weighted_across_tick_rates(self) -> None:
+    def test_prenatal_condition_is_time_weighted_across_tick_rates(
+        self,
+    ) -> None:
         children = []
         for ticks_per_year in (12, 48):
             half = ticks_per_year // 2

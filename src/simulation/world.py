@@ -1,7 +1,15 @@
 import math
 import random
 from array import array
-from typing import Dict, Iterable, List, MutableSequence, Optional, Sequence, Tuple
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    MutableSequence,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from .config import SimulationConfig
 from .models import Agent, Terrain
@@ -65,7 +73,9 @@ class World:
                 self.country[index] = spec.id
                 self.country_land_cells[spec.id].append(index)
             if spec.population and not self.country_land_cells[spec.id]:
-                raise ValueError(f"country {spec.name!r} has no habitable cells")
+                raise ValueError(
+                    f"country {spec.name!r} has no habitable cells"
+                )
 
         specs = {spec.id: spec for spec in scenario.countries}
         self.capacity = array("d", [0.0]) * cell_count

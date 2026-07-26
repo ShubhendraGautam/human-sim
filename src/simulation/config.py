@@ -387,7 +387,9 @@ class SimulationConfig:
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} cannot be negative")
         if not 0.0 <= self.initial_resource_fraction <= 1.0:
-            raise ValueError("initial_resource_fraction must be between 0 and 1")
+            raise ValueError(
+                "initial_resource_fraction must be between 0 and 1"
+            )
         fractions = (
             "initial_resource_variation",
             "seasonality_strength",
@@ -427,7 +429,10 @@ class SimulationConfig:
         for name in fractions:
             if not 0.0 <= getattr(self, name) <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
-        if self.vision_minimum < 0 or self.vision_maximum < self.vision_minimum:
+        if (
+            self.vision_minimum < 0
+            or self.vision_maximum < self.vision_minimum
+        ):
             raise ValueError("invalid vision range")
         if self.initial_age_maximum < self.initial_age_minimum:
             raise ValueError("invalid initial age range")
@@ -449,16 +454,23 @@ class SimulationConfig:
         if self.newborn_energy > self.maximum_energy:
             raise ValueError("newborn_energy cannot exceed maximum_energy")
         if self.initial_inventory > self.inventory_capacity:
-            raise ValueError("initial inventory cannot exceed inventory_capacity")
+            raise ValueError(
+                "initial inventory cannot exceed inventory_capacity"
+            )
         if self.reproduction_cost > self.reproduction_energy:
-            raise ValueError("reproduction_cost cannot exceed reproduction_energy")
+            raise ValueError(
+                "reproduction_cost cannot exceed reproduction_energy"
+            )
         if self.research_gain_maximum < self.research_gain_minimum:
             raise ValueError("invalid research gain range")
         if self.minimum_health_fraction <= 0.0:
             raise ValueError("minimum_health_fraction must be positive")
         if self.maximum_health_fraction < self.minimum_health_fraction:
             raise ValueError("invalid health fraction range")
-        if self.minimum_lifespan <= 0.0 or self.maximum_age <= self.minimum_lifespan:
+        if (
+            self.minimum_lifespan <= 0.0
+            or self.maximum_age <= self.minimum_lifespan
+        ):
             raise ValueError("invalid lifespan range")
         if (
             self.minimum_maturity_age < 0.0
@@ -528,4 +540,7 @@ class SimulationConfig:
             raise ValueError("maximum_social_bonds cannot exceed 255")
 
     def to_dict(self) -> Dict[str, Any]:
-        return {field.name: getattr(self, field.name) for field in fields(self)}
+        return {
+            field.name: getattr(self, field.name)
+            for field in fields(self)
+        }

@@ -150,7 +150,10 @@ def express_traits(
         + affiliation * config.affiliation_metabolic_cost
     )
     cognitive_style = genome.expressed(Gene.COGNITIVE_STYLE)
-    brain_index = min(int(cognitive_style * len(BrainKind)), len(BrainKind) - 1)
+    brain_index = min(
+        int(cognitive_style * len(BrainKind)),
+        len(BrainKind) - 1,
+    )
 
     return Traits(
         metabolism=metabolism,

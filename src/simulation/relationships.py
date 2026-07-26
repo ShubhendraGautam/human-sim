@@ -83,9 +83,13 @@ class RelationshipStore:
         if capacity > 255:
             raise ValueError("relationship capacity cannot exceed 255")
         if not math.isfinite(half_life_ticks) or half_life_ticks <= 0.0:
-            raise ValueError("relationship half-life must be finite and positive")
+            raise ValueError(
+                "relationship half-life must be finite and positive"
+            )
         if not math.isfinite(balance_limit) or balance_limit <= 0.0:
-            raise ValueError("relationship balance limit must be finite and positive")
+            raise ValueError(
+                "relationship balance limit must be finite and positive"
+            )
 
         self.capacity = capacity
         self.half_life_ticks = float(half_life_ticks)
@@ -197,7 +201,9 @@ class RelationshipStore:
             or learning_rate < 0.0
             or learning_rate > 1.0
         ):
-            raise ValueError("relationship learning rate must be between 0 and 1")
+            raise ValueError(
+                "relationship learning rate must be between 0 and 1"
+            )
 
         offset = self._get_or_create_offset(row, other_id, tick)
         self._mark_encounter(offset, tick)
@@ -250,7 +256,7 @@ class RelationshipStore:
         other_id: int,
         tick: int,
     ) -> Optional[RelationshipView]:
-        """Return a decayed view, or ``None`` when the contact is not remembered."""
+        """Return a decayed view, or ``None`` when not remembered."""
 
         self._validate_contact(other_id)
         self._validate_tick(tick)
@@ -313,7 +319,7 @@ class RelationshipStore:
         )
 
     def raw_rows(self) -> Tuple[Tuple[bool, RawRow], ...]:
-        """Export every allocated row and its active flag in row-number order."""
+        """Export allocated rows and active flags in row order."""
 
         return tuple(
             (bool(active), self.raw_row(row))
@@ -443,7 +449,11 @@ class RelationshipStore:
             raise ValueError("relationship row is not active")
 
     def _require_allocated(self, row: int) -> None:
-        if not isinstance(row, int) or row < 0 or row >= len(self._active_rows):
+        if (
+            not isinstance(row, int)
+            or row < 0
+            or row >= len(self._active_rows)
+        ):
             raise IndexError("relationship row is outside allocated storage")
 
     @staticmethod

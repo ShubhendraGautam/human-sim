@@ -304,7 +304,7 @@ def effective_health_capacity(
     developmental_floor: float,
     maximum_frailty_loss: float,
 ) -> float:
-    """Return current health capacity after development and accumulated frailty."""
+    """Return health capacity after development and frailty."""
 
     if (
         genetic_health_capacity < 0.0

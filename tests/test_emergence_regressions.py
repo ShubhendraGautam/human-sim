@@ -23,7 +23,9 @@ class EmergenceRegressionTests(unittest.TestCase):
                 # all-pairs resolution and exact reciprocal-target matching.
                 self.assertGreaterEqual(conceptions, population // 3)
 
-    def test_tiny_social_weight_is_not_trusted_neighbor_influence(self) -> None:
+    def test_tiny_social_weight_is_not_trusted_neighbor_influence(
+        self,
+    ) -> None:
         config = SimulationConfig(
             initial_population=2,
             decision_noise=0.0,
@@ -181,7 +183,9 @@ class EmergenceRegressionTests(unittest.TestCase):
             baseline_mortality_rate_per_year=0.0,
         )
         simulation = Simulation(config, seed=700 + population)
-        agents = tuple(sorted(simulation.agents.values(), key=lambda item: item.id))
+        agents = tuple(
+            sorted(simulation.agents.values(), key=lambda item: item.id)
+        )
         for index, agent in enumerate(agents):
             agent.x = 0
             agent.y = 0
