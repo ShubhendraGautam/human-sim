@@ -107,6 +107,32 @@ Decisions are created from a consistent beginning-of-action-phase view.
 Resolution order is randomized to prevent permanent low-ID priority while
 remaining reproducible.
 
+The engine module owns causal state only. Read-only projections live in
+`src.simulation.observation`.
+
+### `src.simulation.observation`
+
+`measure`, `state_digest`, `snapshot`, and `validate_state` are free functions
+taking a `Simulation`. `Simulation` keeps thin delegating methods, so callers
+are unaffected.
+
+Separating them makes the rule that observation never feeds back into behavior
+structural rather than conventional: an observer that wanted to write state
+would have to reach through its `simulation` argument, which is visible in
+review. `tests/test_observation.py` pins the property directly, including the
+strongest form—that observing a run cannot change its later trajectory.
+
+This is also the seam a native or partitioned backend needs. Observation reads
+broadly across agents, world, and relationships, whereas the tick phases mutate
+them; keeping the two apart means an alternative backend can reimplement
+stepping without reimplementing reporting.
+
+### `src.simulation.versions`
+
+`MODEL_VERSION` and `SNAPSHOT_SCHEMA_VERSION` live here so the engine and
+observation can both declare them without importing each other. `engine`
+re-exports both, so existing imports keep working.
+
 ### `sims`
 
 Scenarios and entry points assemble configurations and run engines. They must

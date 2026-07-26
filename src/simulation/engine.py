@@ -3,7 +3,6 @@ import random
 from array import array
 from collections import Counter, deque
 from operator import attrgetter
-from statistics import fmean
 from typing import (
     Callable,
     Deque,
@@ -16,10 +15,8 @@ from typing import (
 )
 
 from .brain import BrainState, choose_action
-from .config import CONFIG_SCHEMA_VERSION, SimulationConfig
+from .config import SimulationConfig
 from .genetics import (
-    GENOME_SCHEMA_VERSION,
-    LOCUS_COUNT,
     Gene,
     Genome,
     express_traits,
@@ -35,6 +32,7 @@ from .life_history import (
     annual_hazard_to_tick,
     effective_health_capacity,
 )
+from . import observation
 from .models import (
     Action,
     ActionKind,
@@ -49,12 +47,14 @@ from .models import (
 )
 from .relationships import RelationshipStore
 from .scenario import CountrySpec, Scenario
+from .versions import (  # noqa: F401  (re-exported for existing importers)
+    MODEL_VERSION,
+    SNAPSHOT_SCHEMA_VERSION,
+)
 from .world import World
 
 EventSink = Callable[[Event], None]
 MetricsSink = Callable[[Metrics], None]
-SNAPSHOT_SCHEMA_VERSION = 3
-MODEL_VERSION = "0.3"
 REFERENCE_TICKS_PER_YEAR = 12.0
 
 # Sorting the population by ID happens several times per tick; a C-level
@@ -169,327 +169,14 @@ class Simulation:
         self._sample_metrics()
 
     def measure(self) -> Metrics:
-        population = len(self.agents)
-        agents = tuple(
-            sorted(
-                self.agents.values(),
-                key=lambda item: item.id,
-            )
-        )
-        if population:
-            energies = [agent.energy for agent in agents]
-            # values() is a reusable view; subsequent comprehensions are safe.
-            mean_energy = fmean(energies)
-            mean_health = fmean(agent.health for agent in agents)
-            total_food_inventory = sum(
-                agent.inventory for agent in agents
-            )
-            total_material_inventory = sum(
-                agent.material_inventory for agent in agents
-            )
-            mean_inventory = total_food_inventory / population
-            mean_age = fmean(agent.age for agent in agents)
-            mean_health_fraction = fmean(
-                agent.health / max(self._health_capacity(agent), 1e-12)
-                for agent in agents
-            )
-            mean_body_condition = fmean(
-                agent.body_condition for agent in agents
-            )
-            mean_development = fmean(
-                agent.development_index for agent in agents
-            )
-            mean_frailty = fmean(agent.frailty for agent in agents)
-            juvenile_population = sum(
-                agent.age < agent.traits.maturity_age for agent in agents
-            )
-            age_bands = Counter()
-            for agent in agents:
-                if agent.age < self.config.dependent_age:
-                    age_bands["dependent"] += 1
-                elif agent.age < agent.traits.maturity_age:
-                    age_bands["juvenile"] += 1
-                elif (
-                    agent.age
-                    < agent.traits.lifespan
-                    * self.config.aging_starts_fraction
-                ):
-                    age_bands["adult"] += 1
-                else:
-                    age_bands["older"] += 1
-            maximum_generation = max(
-                agent.generation for agent in agents
-            )
-            energy_gini = _gini(energies)
-            seafaring_population = sum(
-                agent.knows_seafaring for agent in agents
-            )
-            vessels = sum(agent.vessel_durability > 0.0 for agent in agents)
-            country_population = Counter(
-                self.world.country_at(agent.x, agent.y)
-                for agent in agents
-            )
-            belief_population = Counter(
-                agent.belief_id for agent in agents
-            )
-            brain_population = Counter(
-                agent.traits.brain_kind.value for agent in agents
-            )
-            reproductive_roles = Counter(
-                agent.reproductive_role.value for agent in agents
-            )
-            disease_population = Counter(
-                agent.infection_stage.name.lower() for agent in agents
-            )
-            mean_heterozygosity = fmean(
-                agent.genome.heterozygosity() for agent in agents
-            )
-            genetic_diversity = _population_genetic_diversity(agents)
-            remembered_connection_counts = []
-            connection_counts = []
-            trust_values = []
-            living_ids = self.agents.keys()
-            active_relationship_ticks = max(
-                1,
-                round(
-                    self.config.relationship_half_life_years
-                    * self.config.ticks_per_year
-                ),
-            )
-            for agent in agents:
-                remembered_views = [
-                    view
-                    for view in self.relationships.views(
-                        agent.relationship_slot,
-                        self.tick,
-                    )
-                    if view.other_id in living_ids
-                ]
-                views = [
-                    view
-                    for view in remembered_views
-                    if (
-                        self.tick - view.last_seen_tick
-                        <= active_relationship_ticks
-                    )
-                ]
-                remembered_connection_counts.append(
-                    len(remembered_views)
-                )
-                connection_counts.append(len(views))
-                trust_values.extend(view.trust for view in views)
-            mean_remembered_connections = fmean(
-                remembered_connection_counts
-            )
-            mean_social_connections = fmean(connection_counts)
-            mean_trust = fmean(trust_values) if trust_values else 0.0
-            isolated_population = sum(
-                count == 0 for count in connection_counts
-            )
-        else:
-            mean_energy = 0.0
-            mean_health = 0.0
-            mean_inventory = 0.0
-            total_food_inventory = 0.0
-            total_material_inventory = 0.0
-            mean_age = 0.0
-            mean_health_fraction = 0.0
-            mean_body_condition = 0.0
-            mean_development = 0.0
-            mean_frailty = 0.0
-            juvenile_population = 0
-            age_bands = Counter()
-            maximum_generation = 0
-            energy_gini = 0.0
-            seafaring_population = 0
-            vessels = 0
-            country_population = Counter()
-            belief_population = Counter()
-            brain_population = Counter()
-            reproductive_roles = Counter()
-            disease_population = Counter()
-            mean_heterozygosity = 0.0
-            genetic_diversity = 0.0
-            mean_remembered_connections = 0.0
-            mean_social_connections = 0.0
-            mean_trust = 0.0
-            isolated_population = 0
+        """Return current aggregate metrics. See :mod:`.observation`."""
 
-        total_capacity = sum(self.world.capacity)
-        total_resources = self.world.total_resources()
-        resource_fraction = (
-            total_resources / total_capacity if total_capacity else 0.0
-        )
-
-        return Metrics(
-            tick=self.tick,
-            year=self.year,
-            population=population,
-            births=self.total_births,
-            conceptions=self.total_conceptions,
-            pregnancies=len(self.pregnancies),
-            pregnancy_losses=self.total_pregnancy_losses,
-            deaths=self.total_deaths,
-            total_resources=total_resources,
-            total_materials=self.world.total_materials(),
-            mean_energy=mean_energy,
-            mean_health=mean_health,
-            mean_inventory=mean_inventory,
-            mean_age=mean_age,
-            mean_health_fraction=mean_health_fraction,
-            mean_body_condition=mean_body_condition,
-            mean_development=mean_development,
-            mean_frailty=mean_frailty,
-            juvenile_population=juvenile_population,
-            age_bands=dict(age_bands),
-            maximum_generation=maximum_generation,
-            energy_gini=energy_gini,
-            resource_fraction=resource_fraction,
-            food_per_capita=(
-                total_resources / population if population else 0.0
-            ),
-            total_food_inventory=total_food_inventory,
-            total_material_inventory=total_material_inventory,
-            food_harvested=self.world.last_food_harvested,
-            food_regenerated=self.world.last_food_regenerated,
-            food_consumed=self._last_food_consumed,
-            food_spoiled=self._last_food_spoiled,
-            food_lost_on_death=self._last_food_lost_on_death,
-            material_harvested=self.world.last_material_harvested,
-            material_regenerated=self.world.last_material_regenerated,
-            material_consumed=self._last_material_consumed,
-            material_lost_on_death=(
-                self._last_material_lost_on_death
-            ),
-            seasonal_productivity=self.world.last_seasonal_productivity,
-            seafaring_population=seafaring_population,
-            vessels=vessels,
-            inventions=self.total_inventions,
-            sea_crossings=self.total_sea_crossings,
-            country_population=dict(country_population),
-            belief_population=dict(belief_population),
-            brain_population=dict(brain_population),
-            reproductive_roles=dict(reproductive_roles),
-            mean_heterozygosity=mean_heterozygosity,
-            genetic_diversity=genetic_diversity,
-            action_entropy=_entropy(
-                self._last_action_counts.values(),
-                len(ActionKind),
-            ),
-            actions=dict(self._last_action_counts),
-            attempted_actions=dict(self._last_action_attempts),
-            failed_actions=dict(self._last_action_failures),
-            deaths_by_cause=dict(self.deaths_by_cause),
-            infections=self.total_infections,
-            recoveries=self.total_recoveries,
-            disease_population=dict(disease_population),
-            mean_remembered_connections=mean_remembered_connections,
-            mean_social_connections=mean_social_connections,
-            mean_trust=mean_trust,
-            isolated_population=isolated_population,
-        )
+        return observation.measure(self)
 
     def state_digest(self) -> Tuple[object, ...]:
         """Compact stable state used for reproducibility checks."""
 
-        agents = tuple(
-            (
-                agent.id,
-                agent.x,
-                agent.y,
-                round(agent.age, 8),
-                round(agent.energy, 8),
-                round(agent.health, 8),
-                round(agent.inventory, 8),
-                round(agent.material_inventory, 8),
-                agent.genome.haplotype_a,
-                agent.genome.haplotype_b,
-                agent.traits,
-                agent.culture,
-                agent.reproductive_role,
-                tuple(round(value, 8) for value in agent.brain.preferences),
-                agent.brain.last_action,
-                round(agent.brain.last_success, 8),
-                agent.brain.last_target_id,
-                agent.brain.last_action_tick,
-                agent.birth_country_id,
-                agent.belief_id,
-                round(agent.research_progress, 8),
-                agent.knows_seafaring,
-                round(agent.vessel_durability, 8),
-                agent.voyage_dx,
-                agent.voyage_dy,
-                agent.generation,
-                agent.parents,
-                agent.birth_tick,
-                agent.last_reproduction_tick,
-                agent.guardian_id,
-                agent.grandparent_ids,
-                round(agent.body_condition, 8),
-                round(agent.development_index, 8),
-                round(agent.development_exposure_years, 8),
-                round(agent.frailty, 8),
-                agent.next_reproduction_tick,
-                agent.relationship_slot,
-                int(agent.infection_stage),
-                agent.infection_ticks_remaining,
-            )
-            for agent in sorted(self.agents.values(), key=lambda item: item.id)
-        )
-        resources = tuple(round(value, 8) for value in self.world.resources)
-        materials = tuple(round(value, 8) for value in self.world.materials)
-        return (
-            self.tick,
-            self.total_births,
-            self.total_conceptions,
-            self.total_deaths,
-            self.total_pregnancy_losses,
-            self.total_inventions,
-            self.total_sea_crossings,
-            self.total_infections,
-            self.total_recoveries,
-            tuple(sorted(self.deaths_by_cause.items())),
-            agents,
-            resources,
-            materials,
-            tuple(sorted(
-                (
-                    parent_id,
-                    pregnancy.other_parent_id,
-                    pregnancy.genome.haplotype_a,
-                    pregnancy.genome.haplotype_b,
-                    pregnancy.culture,
-                    pregnancy.reproductive_role,
-                    pregnancy.belief_id,
-                    pregnancy.generation,
-                    pregnancy.due_tick,
-                    pregnancy.grandparent_ids,
-                    round(pregnancy.prenatal_condition, 8),
-                    round(pregnancy.prenatal_exposure_years, 8),
-                    round(pregnancy.invested_energy, 8),
-                )
-                for parent_id, pregnancy in self.pregnancies.items()
-            )),
-            tuple(
-                (guardian_id, tuple(sorted(dependent_ids)))
-                for guardian_id, dependent_ids
-                in sorted(self.dependents_by_guardian.items())
-            ),
-            self.relationships.raw_rows(),
-            tuple(sorted(self._last_action_counts.items())),
-            tuple(sorted(self._last_action_attempts.items())),
-            tuple(sorted(self._last_action_failures.items())),
-            round(self.world.last_food_harvested, 8),
-            round(self.world.last_food_regenerated, 8),
-            round(self._last_food_consumed, 8),
-            round(self._last_food_spoiled, 8),
-            round(self._last_food_lost_on_death, 8),
-            round(self.world.last_material_harvested, 8),
-            round(self.world.last_material_regenerated, 8),
-            round(self._last_material_consumed, 8),
-            round(self._last_material_lost_on_death, 8),
-            round(self.world.last_seasonal_productivity, 8),
-        )
+        return observation.state_digest(self)
 
     def snapshot(
         self,
@@ -499,355 +186,17 @@ class Simulation:
     ) -> Dict[str, object]:
         """Return versioned JSON state for UIs and recorders."""
 
-        result: Dict[str, object] = {
-            "schema_version": SNAPSHOT_SCHEMA_VERSION,
-            "snapshot_kind": "visualization",
-            "model_version": MODEL_VERSION,
-            "config_schema_version": CONFIG_SCHEMA_VERSION,
-            "genome_schema_version": GENOME_SCHEMA_VERSION,
-            "seed": self.seed,
-            "tick": self.tick,
-            "year": self.year,
-            "config": self.config.to_dict(),
-            "action_preference_order": [
-                kind.value for kind in ActionKind
-            ],
-            "metrics": self.measure().to_dict(),
-            "scenario": self.scenario.to_dict(),
-            "pregnancies": [
-                {
-                    "gestational_parent_id": pregnancy.gestational_parent_id,
-                    "other_parent_id": pregnancy.other_parent_id,
-                    "conception_tick": pregnancy.conception_tick,
-                    "due_tick": pregnancy.due_tick,
-                    "prenatal_condition": pregnancy.prenatal_condition,
-                    "prenatal_exposure_years": (
-                        pregnancy.prenatal_exposure_years
-                    ),
-                    "invested_energy": pregnancy.invested_energy,
-                }
-                for pregnancy in sorted(
-                    self.pregnancies.values(),
-                    key=lambda item: item.gestational_parent_id,
-                )
-            ],
-        }
-        if include_world:
-            result["world"] = {
-                "width": self.config.width,
-                "height": self.config.height,
-                "terrain": list(self.world.terrain),
-                "country": list(self.world.country),
-                "food": list(self.world.resources),
-                "food_capacity": list(self.world.capacity),
-                "food_productivity": list(self.world.productivity),
-                "seasonal_amplitude": list(
-                    self.world.seasonal_amplitude
-                ),
-                "seasonal_phase": list(self.world.seasonal_phase),
-                "materials": list(self.world.materials),
-                "material_capacity": list(self.world.material_capacity),
-                "material_productivity": list(
-                    self.world.material_productivity
-                ),
-            }
-        if include_agents:
-            ordered = sorted(self.agents.values(), key=lambda agent: agent.id)
-            result["agents"] = {
-                "id": [agent.id for agent in ordered],
-                "x": [agent.x for agent in ordered],
-                "y": [agent.y for agent in ordered],
-                "birth_country": [
-                    agent.birth_country_id for agent in ordered
-                ],
-                "belief": [agent.belief_id for agent in ordered],
-                "energy": [agent.energy for agent in ordered],
-                "health": [agent.health for agent in ordered],
-                "food_inventory": [
-                    agent.inventory for agent in ordered
-                ],
-                "material_inventory": [
-                    agent.material_inventory for agent in ordered
-                ],
-                "age": [agent.age for agent in ordered],
-                "generation": [agent.generation for agent in ordered],
-                "parents": [agent.parents for agent in ordered],
-                "guardian_id": [agent.guardian_id for agent in ordered],
-                "grandparents": [
-                    agent.grandparent_ids for agent in ordered
-                ],
-                "genome_a": [
-                    f"{agent.genome.haplotype_a:016x}" for agent in ordered
-                ],
-                "genome_b": [
-                    f"{agent.genome.haplotype_b:016x}" for agent in ordered
-                ],
-                "reproductive_role": [
-                    agent.reproductive_role.value for agent in ordered
-                ],
-                "brain_kind": [
-                    agent.traits.brain_kind.value for agent in ordered
-                ],
-                "last_action": [
-                    agent.brain.last_action for agent in ordered
-                ],
-                "last_action_success": [
-                    agent.brain.last_success for agent in ordered
-                ],
-                "last_action_target": [
-                    agent.brain.last_target_id for agent in ordered
-                ],
-                "last_action_tick": [
-                    agent.brain.last_action_tick for agent in ordered
-                ],
-                "learned_preferences": [
-                    list(agent.brain.preferences) for agent in ordered
-                ],
-                "metabolism": [
-                    agent.traits.metabolism for agent in ordered
-                ],
-                "harvest_skill": [
-                    agent.traits.harvest_skill for agent in ordered
-                ],
-                "inherited_generosity": [
-                    agent.traits.generosity for agent in ordered
-                ],
-                "inherited_exploration": [
-                    agent.traits.exploration for agent in ordered
-                ],
-                "inherited_curiosity": [
-                    agent.traits.curiosity for agent in ordered
-                ],
-                "inherited_conformity": [
-                    agent.traits.conformity for agent in ordered
-                ],
-                "fertility": [
-                    agent.traits.fertility for agent in ordered
-                ],
-                "constitution": [
-                    agent.traits.constitution for agent in ordered
-                ],
-                "maximum_health": [
-                    agent.traits.maximum_health for agent in ordered
-                ],
-                "lifespan": [
-                    agent.traits.lifespan for agent in ordered
-                ],
-                "maturity_age": [
-                    agent.traits.maturity_age for agent in ordered
-                ],
-                "learning_rate": [
-                    agent.traits.learning_rate for agent in ordered
-                ],
-                "immune_strength": [
-                    agent.traits.immune_strength for agent in ordered
-                ],
-                "affiliation": [
-                    agent.traits.affiliation for agent in ordered
-                ],
-                "risk_tolerance": [
-                    agent.traits.risk_tolerance for agent in ordered
-                ],
-                "vision": [agent.traits.vision for agent in ordered],
-                "body_condition": [
-                    agent.body_condition for agent in ordered
-                ],
-                "development": [
-                    agent.development_index for agent in ordered
-                ],
-                "development_exposure_years": [
-                    agent.development_exposure_years
-                    for agent in ordered
-                ],
-                "frailty": [agent.frailty for agent in ordered],
-                "effective_maximum_health": [
-                    self._health_capacity(agent) for agent in ordered
-                ],
-                "next_reproduction_tick": [
-                    agent.next_reproduction_tick for agent in ordered
-                ],
-                "last_reproduction_tick": [
-                    agent.last_reproduction_tick for agent in ordered
-                ],
-                "birth_tick": [agent.birth_tick for agent in ordered],
-                "infection_stage": [
-                    agent.infection_stage.name.lower()
-                    for agent in ordered
-                ],
-                "infection_ticks_remaining": [
-                    agent.infection_ticks_remaining for agent in ordered
-                ],
-                "culture_generosity": [
-                    agent.culture.generosity for agent in ordered
-                ],
-                "culture_exploration": [
-                    agent.culture.exploration for agent in ordered
-                ],
-                "culture_curiosity": [
-                    agent.culture.curiosity for agent in ordered
-                ],
-                "culture_conformity": [
-                    agent.culture.conformity for agent in ordered
-                ],
-                "research_progress": [
-                    agent.research_progress for agent in ordered
-                ],
-                "knows_seafaring": [
-                    agent.knows_seafaring for agent in ordered
-                ],
-                "vessel_durability": [
-                    agent.vessel_durability for agent in ordered
-                ],
-                "voyage_dx": [agent.voyage_dx for agent in ordered],
-                "voyage_dy": [agent.voyage_dy for agent in ordered],
-            }
-        if include_agents and include_relationships:
-            ordered = sorted(
-                self.agents.values(),
-                key=lambda agent: agent.id,
-            )
-            edges = []
-            living_ids = self.agents.keys()
-            for agent in ordered:
-                for relationship in self.relationships.views(
-                    agent.relationship_slot,
-                    self.tick,
-                ):
-                    if relationship.other_id in living_ids:
-                        edges.append((
-                            agent.id,
-                            relationship.other_id,
-                            relationship.trust,
-                            relationship.balance,
-                            relationship.encounters,
-                            relationship.last_seen_tick,
-                        ))
-            edges.sort(key=lambda edge: (edge[0], edge[1]))
-            result["relationships"] = {
-                "source": [edge[0] for edge in edges],
-                "target": [edge[1] for edge in edges],
-                "trust": [edge[2] for edge in edges],
-                "balance": [edge[3] for edge in edges],
-                "encounters": [edge[4] for edge in edges],
-                "last_seen_tick": [edge[5] for edge in edges],
-            }
-        return result
+        return observation.snapshot(
+            self,
+            include_world=include_world,
+            include_agents=include_agents,
+            include_relationships=include_relationships,
+        )
 
     def validate_state(self) -> None:
-        """Raise AssertionError when a core simulation invariant is broken."""
+        """Raise if any cross-structure invariant is violated."""
 
-        config = self.config
-        assert sum(self.deaths_by_cause.values()) == self.total_deaths
-        assert all(
-            math.isfinite(value) and value >= 0.0
-            for value in (
-                self.world.last_food_harvested,
-                self.world.last_food_regenerated,
-                self._last_food_consumed,
-                self._last_food_spoiled,
-                self._last_food_lost_on_death,
-                self.world.last_material_harvested,
-                self.world.last_material_regenerated,
-                self._last_material_consumed,
-                self._last_material_lost_on_death,
-            )
-        )
-        relationship_slots = set()
-        expected_dependents: Dict[int, set[int]] = {}
-        for agent_id, agent in self.agents.items():
-            assert agent.id == agent_id
-            assert self.world.normalize(agent.x, agent.y) == (agent.x, agent.y)
-            assert 0.0 <= agent.energy <= config.maximum_energy
-            assert 0.0 < agent.health <= self._health_capacity(agent) + 1e-9
-            assert 0.0 <= agent.inventory <= config.inventory_capacity
-            assert (
-                0.0
-                <= agent.material_inventory
-                <= config.material_inventory_capacity
-            )
-            assert 0.0 <= agent.genome.heterozygosity() <= 1.0
-            assert all(math.isfinite(value) for value in (
-                agent.age,
-                agent.energy,
-                agent.health,
-                agent.inventory,
-                agent.material_inventory,
-                agent.body_condition,
-                agent.development_index,
-                agent.development_exposure_years,
-                agent.frailty,
-            ))
-            assert 0.0 <= agent.age < config.absolute_maximum_age
-            assert 0.0 <= agent.body_condition <= 1.0
-            assert 0.0 <= agent.development_index <= 1.0
-            assert agent.development_exposure_years >= 0.0
-            assert 0.0 <= agent.frailty <= 1.0
-            assert isinstance(agent.infection_stage, InfectionStage)
-            if agent.infection_stage is InfectionStage.SUSCEPTIBLE:
-                assert agent.infection_ticks_remaining == 0
-            else:
-                assert agent.infection_ticks_remaining > 0
-            assert len(agent.brain.preferences) == len(ActionKind)
-            assert all(
-                0.0 <= getattr(agent.culture, name) <= 1.0
-                for name in (
-                    "generosity",
-                    "exploration",
-                    "curiosity",
-                    "conformity",
-                )
-            )
-            if agent.guardian_id is not None:
-                assert agent.guardian_id in self.agents
-                assert agent.guardian_id != agent.id
-                assert agent.age < config.dependent_age
-                expected_dependents.setdefault(
-                    agent.guardian_id,
-                    set(),
-                ).add(agent.id)
-            assert len(agent.grandparent_ids) <= 4
-            assert len(set(agent.grandparent_ids)) == len(
-                agent.grandparent_ids
-            )
-            assert agent.id not in agent.grandparent_ids
-            assert self.relationships.row_is_active(
-                agent.relationship_slot
-            )
-            assert agent.relationship_slot not in relationship_slots
-            relationship_slots.add(agent.relationship_slot)
-            relationships = self.relationships.views(
-                agent.relationship_slot,
-                self.tick,
-            )
-            assert len(relationships) <= config.maximum_social_bonds
-            assert all(item.other_id != agent.id for item in relationships)
-        assert expected_dependents == self.dependents_by_guardian
-        assert len(relationship_slots) == len(self.relationships)
-        for parent_id, pregnancy in self.pregnancies.items():
-            assert parent_id in self.agents
-            assert pregnancy.gestational_parent_id == parent_id
-            assert (
-                self.agents[parent_id].reproductive_role
-                is ReproductiveRole.OVA
-            )
-            assert pregnancy.due_tick > pregnancy.conception_tick
-            assert 0.0 <= pregnancy.prenatal_condition <= 1.0
-            assert (
-                math.isfinite(pregnancy.prenatal_exposure_years)
-                and pregnancy.prenatal_exposure_years >= 0.0
-            )
-            assert pregnancy.invested_energy >= 0.0
-            assert len(pregnancy.grandparent_ids) <= 4
-        for value, capacity in zip(
-            self.world.resources,
-            self.world.capacity,
-        ):
-            assert 0.0 <= value <= capacity
-        for value, capacity in zip(
-            self.world.materials,
-            self.world.material_capacity,
-        ):
-            assert 0.0 <= value <= capacity
+        observation.validate_state(self)
 
     def _add_founder(self, country: CountrySpec) -> Agent:
         config = self.config
@@ -3019,58 +2368,9 @@ class Simulation:
                 self._metrics_sink(metrics)
 
 
-def _gini(values: List[float]) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(max(value, 0.0) for value in values)
-    total = sum(ordered)
-    if total == 0.0:
-        return 0.0
-    count = len(ordered)
-    weighted = sum(
-        index * value
-        for index, value in enumerate(ordered, start=1)
-    )
-    return (2.0 * weighted) / (count * total) - (count + 1.0) / count
-
-
 def _blend(current: float, observed: float, rate: float) -> float:
     return _clamp(current + rate * (observed - current))
 
 
 def _clamp(value: float) -> float:
     return min(1.0, max(0.0, value))
-
-
-def _population_genetic_diversity(agents: Iterable[Agent]) -> float:
-    counts = [0] * LOCUS_COUNT
-    population = 0
-    for agent in agents:
-        population += 1
-        for haplotype in (
-            agent.genome.haplotype_a,
-            agent.genome.haplotype_b,
-        ):
-            remaining = haplotype
-            while remaining:
-                allele = remaining & -remaining
-                counts[allele.bit_length() - 1] += 1
-                remaining ^= allele
-    if population == 0:
-        return 0.0
-    allele_count = population * 2
-    return fmean(
-        2.0 * (count / allele_count) * (1.0 - count / allele_count)
-        for count in counts
-    )
-
-
-def _entropy(counts: Iterable[int], category_count: int) -> float:
-    values = [count for count in counts if count > 0]
-    total = sum(values)
-    if total == 0 or category_count <= 1:
-        return 0.0
-    return -sum(
-        (count / total) * math.log(count / total)
-        for count in values
-    ) / math.log(category_count)
