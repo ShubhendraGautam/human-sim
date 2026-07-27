@@ -528,6 +528,9 @@ function buildAgentDetail(
   );
   return {
     id,
+    // The fixture never kills anyone; death is only observable on real runs.
+    status: "living",
+    death: null,
     location: {
       x: numericAt(frame.agents.x, index),
       y: numericAt(frame.agents.y, index),

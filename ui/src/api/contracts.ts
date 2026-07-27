@@ -219,6 +219,14 @@ export interface RelationshipDetail {
 
 export interface AgentDetail {
   id: string;
+  /** The dead remain observable while the engine still remembers them. */
+  status: "living" | "deceased";
+  death: {
+    tick: number;
+    year: number;
+    cause: string;
+    age: number;
+  } | null;
   location: {
     x: number;
     y: number;

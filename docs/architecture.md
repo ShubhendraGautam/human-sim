@@ -49,6 +49,32 @@ culture, and learned brain state are separate. There is no explicit selection
 score: reproductive success and survival provide selection pressure through
 the environment.
 
+### `src.simulation.entities`
+
+The world is a canvas, and everything standing on it shares one identity
+space: a person, an animal, a plant, and a structure are all registered, and
+an id names exactly one of them for the life of a run. Identity and placement
+are common; behavior is not, and belongs with each kind.
+
+Two rules define how something comes to exist, and are enforced at
+registration rather than documented:
+
+- A living thing registers itself and deregisters when it dies.
+- An inert thing is registered by whatever made it and carries that creator's
+  id for as long as it exists. Provenance outlives the creator: a structure
+  still records the person who built it long after that person is dead.
+
+Kinds are physical, never social. The registry knows something is an artifact;
+it never knows the artifact is a house, a granary, or a hospital. Those are
+labels a reader may apply to measurable effects — insulation, storage,
+occupancy — not categories the engine simulates. A structure must therefore
+earn its existence through the same utility machinery as any other action:
+if nothing in the environment makes shelter pay for itself, nobody builds.
+
+`Simulation.agents` is the registry's own person store rather than a copy of
+it, so the population and the registry cannot drift apart. Registration and
+removal go through the registry; `validate_state` checks that they did.
+
 ### `src.simulation.life_history` and `src.simulation.health`
 
 These modules contain pure scalar formulas for development, age capability,
@@ -67,9 +93,16 @@ contacts rather than by all possible pairs.
 
 ### `src.simulation.world`
 
-The world stores resources in flat arrays and maps occupied cells to agent IDs.
-Neighborhood queries therefore depend on perception radius and local density,
-not total population.
+The world stores resources in flat arrays and maps occupied cells to entity
+IDs. Neighborhood queries therefore depend on perception radius and local
+density, not total population.
+
+The index keeps one bucket per entity kind. A query for nearby people never
+walks past plants or structures, so local perception costs what it costs today
+however much else occupies the same cell, and a structure can never be
+mistaken for a person standing there. The index is a snapshot rebuilt at fixed
+points in the tick, not a live view: something that died since the last
+rebuild may still be listed, and readers already tolerate that.
 
 World layers store terrain, country, food capacity, annual productivity,
 seasonal amplitude/phase, material capacity, and occupancy separately. Food
@@ -84,8 +117,15 @@ remains a configurable experiment.
 Sea cells cannot be entered by ordinary movement. Seafaring is not globally
 unlocked: an individual must experiment at a coast, spend energy and material,
 accumulate enough research, and construct a vessel. Knowledge can then spread
-through local teaching. Vessels have durability and sea movement has a higher
-energy cost.
+through local teaching. Sea movement has a higher energy cost.
+
+A vessel is consumed by time at sea rather than by distance covered, because a
+hull sitting on open water is as exposed as one being rowed. Nothing forbids
+resting at sea; the sea is simply expensive, and the cost is what makes an
+indefinite float impossible. When a hull fails, geography decides: a coast
+within reach is waded to at a cost, and open water is not survivable.
+Passengers ride on whoever holds the working vessel, so a dependent neither
+drowns beside an intact hull nor survives one that has broken up.
 
 ### `src.simulation.engine`
 
@@ -262,16 +302,24 @@ specialization, mobility, and survival curves.
 
 ## Near-term extension order
 
-1. Add a UI/service adapter around scenario loading, stepping, viewport
-   snapshots, and parameter validation.
-2. Separate lightweight visualization snapshots from full resumable
+1. Separate lightweight visualization snapshots from full resumable
    checkpoints and persist experiment streams with the code revision.
-3. Add spatially coherent climate/biome layers and additional resource types
+2. Add environmental exposure. Seasons currently modulate what grows, and
+   nothing in the world costs a body anything for standing in it. Shelter
+   cannot be necessary until it is, and no structure should be added before
+   that pressure exists.
+3. Add artifacts on the entity substrate: built from materials by an
+   identified creator, decaying without maintenance, with physical effects
+   that other entities read. Their labels stay in the reader's head.
+4. Add spatially coherent climate/biome layers and additional resource types
    only where they create distinct ecological niches.
-4. Introduce production and exchange from physical inventories.
-5. Add resource-grounded taking or conflict only after relationship harm,
+5. Add non-human organisms. Fauna and flora register themselves like anyone
+   else, and a living reservoir replaces the environmental hazard that
+   currently stands in for one.
+6. Introduce production and exchange from physical inventories.
+7. Add resource-grounded taking or conflict only after relationship harm,
    reputation, and injury consequences exist.
-6. Derive groups and institutions from persistent relationships and collective
+8. Derive groups and institutions from persistent relationships and collective
    action.
 
 This order builds causal layers. Markets should follow production and exchange;

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional, Tuple, TYPE_CHECKING
 
+from .entities import EntityKind
 from .health import InfectionStage
 
 if TYPE_CHECKING:
@@ -90,6 +91,12 @@ class Pregnancy:
 
 @dataclass(slots=True)
 class Agent:
+    # Deliberately unannotated: a person's kind is fixed, so it is a class
+    # attribute rather than a field. Plain attribute lookup keeps the spatial
+    # rebuild, which reads it once per entity per tick, as cheap as it was
+    # when the index could only hold people.
+    kind = EntityKind.PERSON
+
     id: int
     x: int
     y: int
@@ -130,6 +137,26 @@ class Agent:
     bond_last_together_tick: int = -1
     infection_stage: InfectionStage = InfectionStage.SUSCEPTIBLE
     infection_ticks_remaining: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class DeathRecord:
+    """What remains of someone once they stop occupying the world.
+
+    Death is a transition, not a disappearance. The dead leave the registry
+    and stop acting, but an observer must still be able to ask what became of
+    a particular person, so their final causal state is kept verbatim rather
+    than summarized. Nothing reads these records back into behavior: they are
+    an observation surface, and the engine never consults them when deciding.
+
+    The store is bounded, so a long run remembers recent deaths and forgets
+    old ones. A forgotten person is not a living one, and callers must not
+    confuse the two.
+    """
+
+    agent: "Agent"
+    tick: int
+    cause: str
 
 
 @dataclass(frozen=True, slots=True)

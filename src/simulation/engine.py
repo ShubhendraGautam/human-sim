@@ -16,6 +16,7 @@ from typing import (
 
 from .brain import BrainState, choose_action
 from .config import SimulationConfig
+from .entities import EntityKind, EntityRegistry
 from .genetics import (
     Gene,
     Genome,
@@ -39,6 +40,7 @@ from .models import (
     Agent,
     BrainKind,
     CultureState,
+    DeathRecord,
     Event,
     Metrics,
     Pregnancy,
@@ -79,7 +81,15 @@ class Simulation:
         self.scenario = scenario or Scenario.default(self.config)
         self.scenario.validate(self.config)
         self.world = World(self.config, self.rng, self.scenario)
-        self.agents: Dict[int, Agent] = {}
+        # Everything that occupies the world shares one identity space. People
+        # are simply the only kind registered so far; `agents` is the
+        # registry's own person store rather than a second copy of it, so the
+        # two cannot drift apart. Registration and removal go through the
+        # registry; see EntityRegistry.of_kind.
+        self.entities = EntityRegistry()
+        self.agents: Dict[int, Agent] = self.entities.of_kind(
+            EntityKind.PERSON
+        )
         self.tick = 0
         self.total_births = 0
         self.total_conceptions = 0
@@ -94,7 +104,6 @@ class Simulation:
         self._last_food_lost_on_death = 0.0
         self._last_material_consumed = 0.0
         self._last_material_lost_on_death = 0.0
-        self._next_agent_id = 0
         self.pregnancies: Dict[int, Pregnancy] = {}
         self.dependents_by_guardian: Dict[int, set[int]] = {}
         self.relationships = RelationshipStore(
@@ -106,6 +115,9 @@ class Simulation:
             balance_limit=self.config.relationship_balance_limit,
         )
         self.deaths_by_cause: Counter[str] = Counter()
+        # The recently dead, newest last. Bounded like the event log: a long
+        # run answers for its recent dead and forgets the rest.
+        self.deaths: Dict[int, DeathRecord] = {}
         self._event_sink = event_sink
         self._metrics_sink = metrics_sink
         self.events: Deque[Event] = deque(
@@ -121,7 +133,7 @@ class Simulation:
         for country in self.scenario.countries:
             for _ in range(country.population):
                 self._add_founder(country)
-        self.world.rebuild_spatial_index(self.agents.values())
+        self.world.rebuild_spatial_index(self.entities.placed())
         self._sample_metrics(force=True)
 
     @property
@@ -154,8 +166,11 @@ class Simulation:
         for agent_id, cause in deaths:
             self._remove_agent(agent_id, cause=cause)
         self._advance_pregnancies()
+        # Voyages resolve before anyone decides anything: a hull that failed
+        # this tick has already put its crew ashore or in the water.
+        self._advance_voyages()
 
-        self.world.rebuild_spatial_index(self.agents.values())
+        self.world.rebuild_spatial_index(self.entities.placed())
         # Bonds are maintained after the index is current, so proximity is
         # judged on where everyone actually is this tick.
         self._advance_bonds()
@@ -168,7 +183,7 @@ class Simulation:
         self.rng.shuffle(actions)
         self._resolve(actions)
         self.world.regenerate(self.tick)
-        self.world.rebuild_spatial_index(self.agents.values())
+        self.world.rebuild_spatial_index(self.entities.placed())
         self._sample_metrics()
 
     def measure(self) -> Metrics:
@@ -291,7 +306,7 @@ class Simulation:
                 config.ticks_per_year,
             )
             self.total_infections += 1
-        self.agents[agent.id] = agent
+        self.entities.register(agent)
         return agent
 
     def _founder_cultural_trait(self, center: float) -> float:
@@ -309,26 +324,55 @@ class Simulation:
         )
 
     def _claim_agent_id(self) -> int:
-        agent_id = self._next_agent_id
-        self._next_agent_id += 1
-        return agent_id
+        return self.entities.claim_id()
 
     def _scan_exposures(
         self,
         ordered_agents: Sequence[Agent],
-        pressure: Sequence[float],
+        pressure: Optional[Sequence[float]],
         elapsed_years: float,
     ) -> List[int]:
-        """Return IDs newly exposed by local infectious pressure."""
+        """Return IDs newly exposed, by local contact or from outside.
+
+        Two doors lead into a susceptible population. Local pressure is the
+        modelled one: it needs someone infectious nearby, and it is what makes
+        an epidemic an epidemic.
+
+        The other is the environment, standing in for every reservoir this
+        model does not yet contain — water, soil, and the animals that are not
+        on the canvas. It matters because without it an outbreak that ends,
+        ends forever: infection can only ever leave the population, never
+        re-enter it, and a founding seed that fizzles at low density leaves a
+        world that can never be sick again. The hazard is per person, so
+        contact with that reservoir grows with the population rather than
+        being handed out as a fixed quota.
+
+        Setting the rate to zero restores exactly the earlier behavior,
+        including the draws, which is what makes runs across the change
+        comparable when that is what an experiment needs.
+        """
+
         config = self.config
         transmission_rate = config.disease_transmission_rate_per_year
+        environmental = (
+            annual_hazard_to_tick(
+                config.environmental_exposure_rate_per_year,
+                elapsed_years,
+            )
+            if config.environmental_exposure_rate_per_year > 0.0
+            else 0.0
+        )
         cell_index = self.world.cell_index
         newly_exposed: List[int] = []
         for agent in ordered_agents:
             if agent.infection_stage is not InfectionStage.SUSCEPTIBLE:
                 continue
-            local_pressure = pressure[cell_index(agent.x, agent.y)]
-            if local_pressure <= 0.0:
+            local_pressure = (
+                0.0
+                if pressure is None
+                else pressure[cell_index(agent.x, agent.y)]
+            )
+            if local_pressure <= 0.0 and environmental <= 0.0:
                 continue
             susceptibility = host_susceptibility(
                 agent.age,
@@ -337,12 +381,22 @@ class Simulation:
                 agent.body_condition,
                 agent.frailty,
             )
-            probability = transmission_probability(
-                transmission_rate,
-                local_pressure,
-                susceptibility,
-                elapsed_years,
+            probability = (
+                transmission_probability(
+                    transmission_rate,
+                    local_pressure,
+                    susceptibility,
+                    elapsed_years,
+                )
+                if local_pressure > 0.0
+                else 0.0
             )
+            if environmental > 0.0:
+                # Independent doors, so the survivor of one still faces the
+                # other rather than the larger hazard simply replacing it.
+                probability = 1.0 - (1.0 - probability) * (
+                    1.0 - environmental * susceptibility
+                )
             if self._stable_uniform(agent.id, 0xD15) < probability:
                 newly_exposed.append(agent.id)
         return newly_exposed
@@ -367,9 +421,10 @@ class Simulation:
         )
 
         newly_exposed = []
-        # With nobody infectious the pressure grid is uniformly zero, so the
-        # exposure scan cannot expose anyone. Skip both rather than allocating
-        # and reading a full-world array every tick.
+        # With nobody infectious the pressure grid is uniformly zero, so it is
+        # never allocated. The scan itself still runs whenever the environment
+        # can expose someone, since that door does not need a neighbour.
+        pressure = None
         if infectious_cells:
             cell_count = config.width * config.height
             pressure = array("f", [0.0]) * cell_count
@@ -381,6 +436,9 @@ class Simulation:
                     config.disease_contact_radius,
                 ):
                     pressure[target_cell] += count
+        if pressure is not None or (
+            config.environmental_exposure_rate_per_year > 0.0
+        ):
             newly_exposed = self._scan_exposures(
                 ordered_agents,
                 pressure,
@@ -1832,11 +1890,6 @@ class Simulation:
         if agent.energy < cost:
             return False
         agent.energy -= cost
-        if current_is_sea or destination_is_sea:
-            agent.vessel_durability = max(
-                0.0,
-                agent.vessel_durability - 1.0,
-            )
         if current_is_sea and not destination_is_sea:
             self.total_sea_crossings += 1
             self._record(Event(self.tick, "landfall", (agent.id,)))
@@ -1852,6 +1905,111 @@ class Simulation:
         for dependent in dependents:
             dependent.x, dependent.y = destination
         return True
+
+    def _advance_voyages(self) -> None:
+        """Wear vessels at sea and resolve what happens when one fails.
+
+        Time at sea consumes a vessel, not distance: a hull sitting on open
+        water is as exposed as one being rowed, so nobody can wait out a
+        voyage indefinitely. When a vessel finally fails, its crew is in the
+        water and the geography decides. A coast within reach can be waded
+        to at a cost; open water cannot, and drowning is the outcome.
+
+        Passengers are carried by whoever holds the working vessel, so a
+        dependent riding along neither drowns beside an intact hull nor
+        survives one that has just broken up.
+        """
+
+        if not self.world.has_sea:
+            return
+        wear = self.config.sea_vessel_wear_per_tick
+        resolved: set[int] = set()
+        drowned: List[int] = []
+        for agent in self._ordered_agents():
+            if agent.id in resolved:
+                continue
+            if not self.world.is_sea(agent.x, agent.y):
+                continue
+            if agent.vessel_durability > 0.0:
+                agent.vessel_durability = max(
+                    0.0,
+                    agent.vessel_durability - wear,
+                )
+            if self._has_passage(agent):
+                continue
+            party = [agent]
+            party.extend(
+                dependent
+                for dependent in self._passengers(agent)
+                if dependent.id not in resolved
+            )
+            shore = self._shore_within_reach(agent)
+            for member in party:
+                resolved.add(member.id)
+                if shore is None:
+                    drowned.append(member.id)
+                    continue
+                member.x, member.y = shore
+                member.voyage_dx = 0
+                member.voyage_dy = 0
+                member.energy = max(
+                    0.0,
+                    member.energy - self.config.sea_movement_cost,
+                )
+            if shore is not None:
+                self._record(
+                    Event(
+                        self.tick,
+                        "wrecked_ashore",
+                        tuple(member.id for member in party),
+                    )
+                )
+        for agent_id in drowned:
+            self._record(Event(self.tick, "drowned", (agent_id,)))
+            self._remove_agent(agent_id, cause="drowned")
+
+    def _has_passage(self, agent: Agent) -> bool:
+        """Whether the sea is survivable for this person right now."""
+
+        if agent.vessel_durability > 0.0:
+            return True
+        guardian_id = agent.guardian_id
+        if guardian_id is None:
+            return False
+        guardian = self.agents.get(guardian_id)
+        return (
+            guardian is not None
+            and guardian.vessel_durability > 0.0
+            and (guardian.x, guardian.y) == (agent.x, agent.y)
+        )
+
+    def _passengers(self, agent: Agent) -> List[Agent]:
+        """Dependents sharing this cell, who ride on this person's vessel."""
+
+        passengers = []
+        for dependent_id in sorted(
+            self.dependents_by_guardian.get(agent.id, ())
+        ):
+            dependent = self.agents.get(dependent_id)
+            if (
+                dependent is not None
+                and (dependent.x, dependent.y) == (agent.x, agent.y)
+            ):
+                passengers.append(dependent)
+        return passengers
+
+    def _shore_within_reach(
+        self,
+        agent: Agent,
+    ) -> Optional[Tuple[int, int]]:
+        for offset_x, offset_y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            destination = self.world.normalize(
+                agent.x + offset_x,
+                agent.y + offset_y,
+            )
+            if destination is not None and not self.world.is_sea(*destination):
+                return destination
+        return None
 
     def _voyage_destination(
         self,
@@ -2434,7 +2592,7 @@ class Simulation:
                 config.ticks_per_year,
                 0.75 + 0.50 * gestational_parent.traits.immune_strength,
             )
-        self.agents[child.id] = child
+        self.entities.register(child)
         self._set_guardian(child, pregnancy.gestational_parent_id)
         for parent_id in child.parents:
             parent = self.agents.get(parent_id)
@@ -2605,7 +2763,7 @@ class Simulation:
         agent_id: int,
         cause: str = "unknown",
     ) -> None:
-        agent = self.agents.pop(agent_id, None)
+        agent = self.entities.deregister(agent_id)
         if agent is None:
             return
         self._last_food_lost_on_death += agent.inventory
@@ -2656,6 +2814,9 @@ class Simulation:
             self.relationships.release(agent.relationship_slot)
         self.total_deaths += 1
         self.deaths_by_cause[cause] += 1
+        # Recorded last, once every consequence of the death has been applied,
+        # so the record holds the state the person actually died in.
+        self._remember_death(agent, cause)
         self._record(
             Event(
                 self.tick,
@@ -2664,6 +2825,19 @@ class Simulation:
                 (("age", agent.age),),
             )
         )
+
+    def _remember_death(self, agent: Agent, cause: str) -> None:
+        capacity = self.config.death_record_capacity
+        if capacity <= 0:
+            return
+        self.deaths[agent.id] = DeathRecord(
+            agent=agent,
+            tick=self.tick,
+            cause=cause,
+        )
+        while len(self.deaths) > capacity:
+            # Insertion order is death order, so the oldest goes first.
+            del self.deaths[next(iter(self.deaths))]
 
     def _record(self, event: Event) -> None:
         self.events.append(event)

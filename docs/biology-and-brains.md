@@ -120,10 +120,21 @@ The current disease layer is one generic, calibratable SEIR-style process:
 susceptible, exposed, infectious, and temporarily recovered. It is not a model
 of a named disease.
 
-- A run has no outbreak unless founders are explicitly exposed through global
-  configuration or a country's starting condition.
+- Infection enters a population two ways: founders explicitly exposed through
+  global configuration or a country's starting condition, and a small
+  per-person environmental hazard. The second exists because the first is a
+  one-time event: with contact as the only remaining route, an outbreak that
+  burns out can never return, and a sparse population whose founding seed
+  fails is permanently healthy no matter how crowded it later becomes. The
+  hazard stands in for reservoirs the model does not contain — water, soil,
+  and animals — and disappears when those are simulated directly.
+- Introductions are per person, so contact with the reservoir grows with the
+  population rather than arriving as a fixed quota.
+- Whether an introduction fizzles or becomes a wave is left to density. The
+  reservoir decides how often infection arrives, never how far it gets.
 - Infectious agents deposit pressure into a bounded neighborhood layer.
 - Transmission is a hazard of local pressure and current host susceptibility.
+  The two routes are independent, so surviving one still leaves the other.
 - Inherited immune potential, age, body condition, and frailty affect
   susceptibility or severity.
 - Infection consumes energy and damages health; it never directly deletes an

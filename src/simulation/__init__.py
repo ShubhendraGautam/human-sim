@@ -3,6 +3,13 @@
 from .brain import BrainState
 from .config import CONFIG_SCHEMA_VERSION, SimulationConfig
 from .engine import Simulation
+from .entities import (
+    INERT_KINDS,
+    LIVING_KINDS,
+    EntityKind,
+    EntityRegistry,
+    Placeable,
+)
 from .genetics import GENOME_SCHEMA_VERSION, Gene, Genome, genetic_distance
 from .health import (
     InfectionStage,
@@ -44,12 +51,17 @@ __all__ = [
     "CountrySpec",
     "CONFIG_SCHEMA_VERSION",
     "CultureState",
+    "EntityKind",
+    "EntityRegistry",
     "Event",
+    "INERT_KINDS",
+    "LIVING_KINDS",
     "Gene",
     "Genome",
     "GENOME_SCHEMA_VERSION",
     "InfectionStage",
     "Metrics",
+    "Placeable",
     "Pregnancy",
     "Rectangle",
     "ReproductiveRole",

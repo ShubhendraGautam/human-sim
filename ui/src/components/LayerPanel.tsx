@@ -72,11 +72,17 @@ function ColorLegend({
             ["#b5c3b5", "Habitual"],
             ["#d08ce8", "Social"],
           ]
-        : [
-            ["#f06f63", "Low"],
-            ["#f2bd69", "Moderate"],
-            ["#a8df9b", "High"],
-          ];
+        : mode === "seafaring"
+          ? [
+              ["#63c9f0", "Holds a vessel"],
+              ["#3f7f96", "Knows seafaring"],
+              ["#6f7a72", "Neither"],
+            ]
+          : [
+              ["#f06f63", "Low"],
+              ["#f2bd69", "Moderate"],
+              ["#a8df9b", "High"],
+            ];
   return (
     <div className="color-legend" aria-label={`${titleCase(mode)} legend`}>
       {entries.map(([color, label]) => (
@@ -161,12 +167,22 @@ export function LayerPanel({
           meta={`${compact(frame.metrics.population)} living`}
           onChange={(checked) => onToggle("agents", checked)}
         />
+        <LayerRow
+          checked={layers.vessels}
+          icon="waves"
+          label="Vessels"
+          meta={`${compact(frame.metrics.vessels)} afloat`}
+          onChange={(checked) => onToggle("vessels", checked)}
+        />
       </div>
 
       <div className="panel-section color-section">
         <span className="field-label">Color people by</span>
         <div className="segmented-control segmented-full">
-          {(["country", "brain", "health"] as AgentColorMode[]).map(
+          {(
+            ["country", "brain", "health", "seafaring"] as
+              AgentColorMode[]
+          ).map(
             (mode) => (
               <button
                 aria-pressed={layers.colorMode === mode}

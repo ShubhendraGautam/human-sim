@@ -150,6 +150,9 @@ class DiseaseShortCircuitTests(unittest.TestCase):
             initial_population=20,
             initial_exposed_fraction=0.0,
             disease_transmission_rate_per_year=50.0,
+            # This is a claim about local transmission alone, so the outside
+            # reservoir is closed rather than left to introduce a case.
+            environmental_exposure_rate_per_year=0.0,
         )
         simulation = Simulation(config=config, seed=7)
         for agent in simulation.agents.values():

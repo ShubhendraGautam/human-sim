@@ -192,18 +192,28 @@ class PythonSimulationBackend:
 
     def agent(self, agent_id: int) -> BackendAgent:
         simulation = self._simulation
-        try:
-            agent = simulation.agents[agent_id]
-        except KeyError:
-            raise KeyError(agent_id) from None
+        agent = simulation.agents.get(agent_id)
+        death = None if agent is not None else simulation.deaths.get(agent_id)
+        if agent is None:
+            if death is None:
+                raise KeyError(agent_id)
+            agent = death.agent
 
         health_capacity = _health_capacity(simulation, agent)
         relationship_rows = []
         living_ids = simulation.agents.keys()
-        for relationship in simulation.relationships.views(
-            agent.relationship_slot,
-            simulation.tick,
-        ):
+        # A dead person's relationship row was released back to the store and
+        # may already belong to someone else, so their memories are gone with
+        # them rather than misread from a stranger's row.
+        views = (
+            ()
+            if death is not None
+            else simulation.relationships.views(
+                agent.relationship_slot,
+                simulation.tick,
+            )
+        )
+        for relationship in views:
             if relationship.other_id not in living_ids:
                 continue
             relationship_rows.append({
@@ -215,7 +225,9 @@ class PythonSimulationBackend:
             })
         relationship_rows.sort(key=lambda item: int(item["agent_id"]))
 
-        pregnancy = simulation.pregnancies.get(agent.id)
+        pregnancy = (
+            None if death is not None else simulation.pregnancies.get(agent.id)
+        )
         pregnancy_payload: Optional[Dict[str, object]] = None
         if pregnancy is not None:
             pregnancy_payload = {
@@ -231,6 +243,13 @@ class PythonSimulationBackend:
 
         detail: Dict[str, object] = {
             "id": str(agent.id),
+            "status": "living" if death is None else "deceased",
+            "death": None if death is None else {
+                "tick": death.tick,
+                "year": death.tick / simulation.config.ticks_per_year,
+                "cause": death.cause,
+                "age": death.agent.age,
+            },
             "location": {
                 "x": agent.x,
                 "y": agent.y,
@@ -257,7 +276,7 @@ class PythonSimulationBackend:
                             (),
                         )
                     )
-                ],
+                ] if death is None else [],
             },
             "life": {
                 "age": agent.age,

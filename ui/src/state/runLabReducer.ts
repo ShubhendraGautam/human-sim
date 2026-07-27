@@ -5,6 +5,7 @@ import {
   type RunManifest,
   type TimelinePoint,
 } from "../api/contracts";
+import { DEFAULT_PACE_INDEX, PACE_LADDER } from "../lib/pace";
 
 const HISTORY_LIMIT = 180;
 
@@ -16,7 +17,8 @@ export interface RunLabState {
   frame: RunFrame | null;
   history: TimelinePoint[];
   playing: boolean;
-  speed: number;
+  /** Index into PACE_LADDER; real time a simulated year should take. */
+  paceIndex: number;
   selectedAgentId: string | null;
   detail: AgentDetailEnvelope | null;
   detailLoading: boolean;
@@ -29,7 +31,7 @@ export const initialRunLabState: RunLabState = {
   frame: null,
   history: [],
   playing: false,
-  speed: 1,
+  paceIndex: DEFAULT_PACE_INDEX,
   selectedAgentId: null,
   detail: null,
   detailLoading: false,
@@ -43,7 +45,7 @@ export type RunLabAction =
   | { kind: "frame_received"; frame: RunFrame }
   | { kind: "failed"; message: string }
   | { kind: "playing_changed"; playing: boolean }
-  | { kind: "speed_changed"; speed: number }
+  | { kind: "pace_changed"; paceIndex: number }
   | { kind: "agent_selected"; agentId: string | null }
   | { kind: "detail_started"; agentId: string }
   | { kind: "detail_received"; detail: AgentDetailEnvelope }
@@ -67,7 +69,7 @@ export function runLabReducer(
     case "load_started":
       return {
         ...initialRunLabState,
-        speed: state.speed,
+        paceIndex: state.paceIndex,
       };
     case "session_received":
       return {
@@ -117,10 +119,13 @@ export function runLabReducer(
         ...state,
         playing: action.playing,
       };
-    case "speed_changed":
+    case "pace_changed":
       return {
         ...state,
-        speed: action.speed,
+        paceIndex: Math.min(
+          PACE_LADDER.length - 1,
+          Math.max(0, Math.round(action.paceIndex)),
+        ),
       };
     case "agent_selected":
       return {
@@ -153,8 +158,12 @@ export function runLabReducer(
       if (action.agentId !== state.selectedAgentId) {
         return state;
       }
+      // Keeping the last successful detail would leave a person on screen who
+      // no longer exists, indistinguishable from a live reading. The engine
+      // answers for its recent dead, so a failure here means genuinely gone.
       return {
         ...state,
+        detail: null,
         detailLoading: false,
       };
   }

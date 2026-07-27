@@ -73,3 +73,13 @@ export function scenarioName(manifest: RunManifest): string {
   const names = manifest.scenario.countries.map((country) => country.name);
   return names.length === 2 ? `${names[0]} · ${names[1]}` : "Custom world";
 }
+
+/** A positive numeric field from the run's configuration, or a fallback. */
+export function configNumber(
+  manifest: RunManifest,
+  name: string,
+  fallback: number,
+): number {
+  const value = manifest.config[name];
+  return typeof value === "number" && value > 0 ? value : fallback;
+}

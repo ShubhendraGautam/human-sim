@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import Any, Dict
 
-CONFIG_SCHEMA_VERSION = 2
+CONFIG_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +70,10 @@ class SimulationConfig:
     baseline_mortality_rate_per_year: float = 0.001
     frailty_mortality_rate_per_year: float = 0.25
     initial_exposed_fraction: float = 0.02
+    # Standing in for reservoirs this model does not contain yet: water,
+    # soil, and the animals not on the canvas. Without a way back in, one
+    # outbreak that fizzles leaves a world that can never be sick again.
+    environmental_exposure_rate_per_year: float = 0.004
     disease_contact_radius: int = 1
     disease_transmission_rate_per_year: float = 0.35
     disease_incubation_years: float = 0.25
@@ -162,6 +166,9 @@ class SimulationConfig:
     vessel_material_cost: float = 6.0
     vessel_energy_cost: float = 4.0
     vessel_durability: float = 30.0
+    # A vessel is consumed by time at sea rather than by distance, so nobody
+    # can idle on open water indefinitely.
+    sea_vessel_wear_per_tick: float = 1.0
     sea_movement_cost: float = 1.0
     sea_exploration_weight: float = 2.2
     voyage_weight: float = 3.0
@@ -204,6 +211,8 @@ class SimulationConfig:
     metrics_interval: int = 10
     metrics_history_capacity: int = 10_000
     event_log_capacity: int = 1_000
+    # How many of the recently dead stay answerable to an observer.
+    death_record_capacity: int = 1_000
 
     def __post_init__(self) -> None:
         integer_fields = (
@@ -221,6 +230,7 @@ class SimulationConfig:
             "metrics_interval",
             "metrics_history_capacity",
             "event_log_capacity",
+            "death_record_capacity",
         )
         for name in integer_fields:
             value = getattr(self, name)
@@ -396,6 +406,7 @@ class SimulationConfig:
             "bond_movement_weight",
             "metrics_history_capacity",
             "event_log_capacity",
+            "death_record_capacity",
         )
         for name in nonnegative:
             if getattr(self, name) < 0:

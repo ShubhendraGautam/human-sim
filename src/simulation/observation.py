@@ -16,6 +16,7 @@ from statistics import fmean
 from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple
 
 from .config import CONFIG_SCHEMA_VERSION
+from .entities import INERT_KINDS, EntityKind
 from .genetics import GENOME_SCHEMA_VERSION, LOCUS_COUNT
 from .health import InfectionStage
 from .models import ActionKind, Agent, Metrics, ReproductiveRole
@@ -604,6 +605,51 @@ def snapshot(
     return result
 
 
+def _validate_entities(simulation: "Simulation") -> None:
+    """Check that the world's registry and its contents agree.
+
+    The registry is the only authority for what exists, so the population is
+    the person store rather than a copy of it, and every id ever used came
+    from the one identity space.
+    """
+
+    registry = simulation.entities
+    assert simulation.agents is registry.of_kind(EntityKind.PERSON)
+    for kind in EntityKind:
+        for entity_id, entity in registry.of_kind(kind).items():
+            assert entity.id == entity_id
+            assert entity.kind is kind
+            assert registry.kind_of(entity_id) is kind
+            assert entity_id < registry.claimed_ids
+            assert simulation.world.normalize(entity.x, entity.y) == (
+                entity.x,
+                entity.y,
+            )
+            creator = registry.creator_of(entity_id)
+            if kind in INERT_KINDS:
+                # Something made it, and that provenance survives the maker.
+                assert creator is not None
+                assert creator < registry.claimed_ids
+            else:
+                assert creator is None
+    assert len(registry) == sum(
+        len(registry.of_kind(kind)) for kind in EntityKind
+    )
+    # The spatial index is a snapshot taken at fixed points in the tick, so
+    # something that died since the last rebuild may still be listed. What may
+    # never happen is an identity appearing under a kind that is not its own,
+    # which would let a structure read as a person to local perception.
+    indexed_kinds: Dict[int, EntityKind] = {}
+    for kind in EntityKind:
+        for entity_ids in simulation.world.occupants_of_kind(kind).values():
+            for entity_id in entity_ids:
+                assert entity_id < registry.claimed_ids
+                assert entity_id not in indexed_kinds
+                indexed_kinds[entity_id] = kind
+                current = registry.kind_of(entity_id)
+                assert current is None or current is kind
+
+
 def validate_state(simulation: "Simulation") -> None:
     """Raise AssertionError when a core simulation invariant is broken."""
 
@@ -623,6 +669,7 @@ def validate_state(simulation: "Simulation") -> None:
             simulation._last_material_lost_on_death,
         )
     )
+    _validate_entities(simulation)
     relationship_slots = set()
     expected_dependents: Dict[int, set[int]] = {}
     for agent_id, agent in simulation.agents.items():

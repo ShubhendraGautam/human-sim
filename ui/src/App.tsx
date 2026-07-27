@@ -139,7 +139,7 @@ function AppHeader({
 
 export default function App() {
   const client = useMemo(makeClient, []);
-  const { state, actions } = useRunLab(
+  const { state, actions, plan, ticksPerYear } = useRunLab(
     client,
     INITIAL_REQUEST,
     import.meta.env.VITE_SIM_RUN_ID,
@@ -151,6 +151,7 @@ export default function App() {
     materials: false,
     disease: true,
     agents: true,
+    vessels: true,
     colorMode: "country",
   });
 
@@ -200,10 +201,13 @@ export default function App() {
         onPause={actions.pause}
         onPlay={actions.play}
         onReset={() => void actions.reset()}
-        onSetSpeed={actions.setSpeed}
+        onSetPace={actions.setPace}
         onStep={() => void actions.step(1)}
+        onStepYear={() => void actions.stepYear()}
+        paceIndex={state.paceIndex}
+        plan={plan}
         playing={state.playing}
-        speed={state.speed}
+        ticksPerYear={ticksPerYear}
       />
 
       {state.error === null ? null : (

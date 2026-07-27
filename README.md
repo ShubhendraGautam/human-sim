@@ -12,6 +12,11 @@ outcomes arise from repeated local interactions.
 
 Every run contains:
 
+- One identity space for everything that occupies the world. Living things
+  register themselves and deregister when they die; inert things are
+  registered by whatever made them and keep that provenance after the maker
+  is gone. People are currently the only kind present, which is a statement
+  about what exists today rather than about the substrate.
 - A bounded, optionally wrapping world with heterogeneous carrying capacity,
   capacity-scaled productivity, latitude-driven seasons, food spoilage,
   nonrenewable materials by default, and user-defined land and sea.
@@ -36,15 +41,26 @@ Every run contains:
   stochastic pregnancy loss, postpartum recovery, delayed birth, bounded
   recent ancestry, dependent children, caregiver food transfer, stochastic
   senescence, and causal death accounting.
-- A generic local SEIR-style infection process. Outbreaks require seeded
-  exposure and spread through local density; susceptibility and severity
-  respond to inherited immune potential, age, nutrition, and frailty.
+- A generic local SEIR-style infection process with two ways in: local
+  contact, and a small per-person environmental hazard standing in for the
+  reservoirs this model does not contain yet. Without the second, an outbreak
+  that ends ends forever, so a founding seed that fizzles in a sparse world
+  leaves a world that can never be sick again. Susceptibility and severity
+  respond to inherited immune potential, age, nutrition, and frailty, and
+  whether an introduction fizzles or becomes a wave is decided by density
+  rather than by a schedule. Set `environmental_exposure_rate_per_year` to
+  zero to close the reservoir and reproduce earlier runs exactly.
 - Material gathering and an embodied seafaring path: curious coastal agents
-  experiment at a cost, knowledge spreads locally, vessels require materials,
-  and sea movement consumes energy and durability.
+  experiment at a cost, knowledge spreads locally, and vessels require
+  materials. A vessel is spent by time at sea rather than by distance, so
+  nobody can wait out a voyage on open water; when a hull fails, a coast
+  within reach can be waded to and open water cannot, which drowns whoever
+  is in it along with any passengers aboard.
 - Aggregate metrics—including world and held stocks plus per-tick harvest,
-  renewal, consumption, spoilage, and death losses—and a bounded diagnostic
-  event log.
+  renewal, consumption, spoilage, and death losses—a bounded diagnostic event
+  log, and a bounded record of the recently dead holding the cause and the
+  state each person died in, so death is observable as a state rather than as
+  readings that stop arriving.
 - Seeded randomness. The same configuration, seed, and number of ticks produce
   exactly the same state.
 
@@ -53,6 +69,28 @@ behavior. Culture and lifetime learning are separate from genetic inheritance.
 Traditions initialize cultural tendencies and can change through family and
 contact. Wealth, markets, borders, and government remain intentionally absent
 until lower-level mechanics can produce them.
+
+## Quick start
+
+`run.sh` is a single entry point for the common tasks: installing
+dependencies, starting and stopping the engine service and the Run Lab UI
+together, running a headless simulation, and running the checks CI runs.
+
+```bash
+./run.sh setup     # create .venv, install Python and UI dependencies
+./run.sh start     # engine API on :8000, Run Lab UI on :5173
+./run.sh status    # what is running
+./run.sh logs      # follow both logs (Ctrl-C leaves services running)
+./run.sh stop      # stop both
+```
+
+Other commands: `restart`, `sim [args]`, `scenario [file] [args]`,
+`test [py|ui|all]`, `lint`, `check`, `build`, `clean`. Run `./run.sh help` for
+the full list. `start` accepts `--api-only`, `--ui-only`, and `--logs`. Ports
+come from `API_PORT` and `UI_PORT`; pid files and logs live in `.run/`.
+
+Everything the script does is also available as the direct commands below, and
+the simulation core itself needs nothing but Python.
 
 ## Run
 
@@ -145,7 +183,8 @@ through a separate, versioned service boundary; browser controls can advance
 time and recreate starting conditions but cannot change an agent's decisions
 or causal state.
 
-Start the optional API:
+`./run.sh start` brings both halves up together. To run them by hand instead,
+start the optional API:
 
 ```bash
 python3 -m venv .venv
@@ -216,9 +255,11 @@ SimulationConfig (immutable rules)
 Simulation engine -----> aggregate metrics / optional event sink
     |          |
     v          v
-  World      Agents
-resource     local state
-grid/index   inherited traits
+  World     EntityRegistry
+resource    one id space
+grid        people (today), fauna, flora, artifacts
+  |              |
+  +---> spatial index, one bucket per kind
 ```
 
 The simulation is headless: rendering and analysis consume its outputs but

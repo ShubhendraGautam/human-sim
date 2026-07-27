@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
 } from "react";
@@ -11,11 +12,22 @@ import type {
   RunSession,
 } from "../api/contracts";
 import {
+  paceStep,
+  planPlayback,
+  ticksPerYearOf,
+} from "../lib/pace";
+import {
   initialRunLabState,
   runLabReducer,
 } from "../state/runLabReducer";
 
-const PLAYBACK_INTERVAL_MS = 420;
+/**
+ * How often the playback loop wakes to ask whether the next tick is due. It
+ * is deliberately unrelated to the pace: waking on a short fixed cadence lets
+ * a pace change take effect promptly without either stepping early or waiting
+ * out an interval that may be half an hour long.
+ */
+const PLAYBACK_POLL_MS = 250;
 
 export function useRunLab(
   client: SimulationClient,
@@ -93,25 +105,50 @@ export function useRunLab(
     [client],
   );
 
+  const ticksPerYear = ticksPerYearOf(state.manifest);
+  const plan = useMemo(
+    () => planPlayback(paceStep(state.paceIndex).secondsPerYear, ticksPerYear),
+    [state.paceIndex, ticksPerYear],
+  );
+  const planRef = useRef(plan);
+  planRef.current = plan;
+
+  // Playback advances the run at the chosen pace. The loop measures from the
+  // moment a step was requested rather than from when it answered, so service
+  // latency is absorbed by the wait instead of being added to it: a run set to
+  // ten minutes a year keeps that pace whether a step costs 5 ms or 200 ms.
   useEffect(() => {
     if (!state.playing || state.manifest === null) {
       return;
     }
     let active = true;
     let timeout: number | undefined;
-    const schedule = () => {
-      timeout = window.setTimeout(() => {
-        if (!active) {
-          return;
+    // The first tick after pressing Run is immediate; only later ones wait,
+    // otherwise a slow pace looks like a broken control.
+    let dueAt = performance.now();
+
+    const wake = () => {
+      if (!active) {
+        return;
+      }
+      const now = performance.now();
+      const remaining = dueAt - now;
+      if (remaining > 0) {
+        timeout = window.setTimeout(
+          wake,
+          Math.min(PLAYBACK_POLL_MS, remaining),
+        );
+        return;
+      }
+      dueAt = now + planRef.current.intervalMs;
+      void step(planRef.current.ticks).finally(() => {
+        if (active && stateRef.current.playing) {
+          wake();
         }
-        void step(stateRef.current.speed).finally(() => {
-          if (active && stateRef.current.playing) {
-            schedule();
-          }
-        });
-      }, PLAYBACK_INTERVAL_MS);
+      });
     };
-    schedule();
+
+    wake();
     return () => {
       active = false;
       if (timeout !== undefined) {
@@ -176,14 +213,17 @@ export function useRunLab(
 
   return {
     state,
+    ticksPerYear,
+    plan,
     actions: {
       play: () => dispatch({ kind: "playing_changed", playing: true }),
       pause: () =>
         dispatch({ kind: "playing_changed", playing: false }),
       step,
+      stepYear: () => step(ticksPerYear),
       reset,
-      setSpeed: (speed: number) =>
-        dispatch({ kind: "speed_changed", speed }),
+      setPace: (paceIndex: number) =>
+        dispatch({ kind: "pace_changed", paceIndex }),
       selectAgent: (agentId: string | null) =>
         dispatch({ kind: "agent_selected", agentId }),
     },

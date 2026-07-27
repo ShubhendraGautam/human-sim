@@ -12,6 +12,7 @@ from typing import (
 )
 
 from .config import SimulationConfig
+from .entities import EntityKind, Placeable
 from .models import Agent, Terrain
 from .scenario import Scenario
 
@@ -35,6 +36,7 @@ class World:
         "has_sea",
         "country_land_cells",
         "_occupants",
+        "_occupants_by_kind",
         "_interior_offsets",
         "last_food_harvested",
         "last_food_regenerated",
@@ -141,7 +143,14 @@ class World:
                 * config.initial_resource_fraction
                 * variation
             )
-        self._occupants: Dict[int, List[int]] = {}
+        self._occupants_by_kind: Dict[EntityKind, Dict[int, List[int]]] = {
+            kind: {} for kind in EntityKind
+        }
+        # The person bucket by another name: local perception reads it on the
+        # hot path, so it stays a direct attribute rather than a lookup.
+        self._occupants: Dict[int, List[int]] = self._occupants_by_kind[
+            EntityKind.PERSON
+        ]
         self._interior_offsets: Dict[int, Tuple[int, ...]] = {}
         self.last_food_harvested = 0.0
         self.last_food_regenerated = 0.0
@@ -335,14 +344,33 @@ class World:
             ),
         )
 
-    def rebuild_spatial_index(self, agents: Iterable[Agent]) -> None:
-        occupants: Dict[int, List[int]] = {}
-        for agent in agents:
-            index = self.cell_index(agent.x, agent.y)
-            occupants.setdefault(index, []).append(agent.id)
-        for agent_ids in occupants.values():
-            agent_ids.sort()
-        self._occupants = occupants
+    def rebuild_spatial_index(self, entities: Iterable[Placeable]) -> None:
+        """Index everything the world holds, keeping the kinds apart.
+
+        Separate buckets mean a query for people never walks past plants or
+        structures, so local perception keeps costing what it costs today no
+        matter how much else is standing in the same cell.
+        """
+
+        buckets: Dict[EntityKind, Dict[int, List[int]]] = {
+            kind: {} for kind in EntityKind
+        }
+        for entity in entities:
+            index = self.cell_index(entity.x, entity.y)
+            buckets[entity.kind].setdefault(index, []).append(entity.id)
+        for bucket in buckets.values():
+            for entity_ids in bucket.values():
+                entity_ids.sort()
+        self._occupants_by_kind = buckets
+        self._occupants = buckets[EntityKind.PERSON]
+
+    def occupants_of_kind(
+        self,
+        kind: EntityKind,
+    ) -> Dict[int, List[int]]:
+        """Cell index to sorted entity ids, for one kind."""
+
+        return self._occupants_by_kind[kind]
 
     def nearby_agent_ids(
         self,

@@ -155,8 +155,11 @@ class RunSession:
             try:
                 source = self._backend.agent(resolved_id)
             except KeyError:
+                # The dead are answerable while the engine still remembers
+                # them, so reaching here means never seen or long forgotten.
                 raise AgentNotFoundError(
-                    f"agent {resolved_id} is not alive in run {self.run_id!r}"
+                    f"run {self.run_id!r} has no record of agent "
+                    f"{resolved_id}"
                 ) from None
             return AgentDetail(
                 run_id=self.run_id,

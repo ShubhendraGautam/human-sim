@@ -5,6 +5,7 @@ import type {
 } from "../api/contracts";
 import {
   beliefName,
+  configNumber,
   countryName,
   percent,
   precise,
@@ -54,15 +55,6 @@ function traitValue(
 ): number | null {
   const value = traits[name];
   return typeof value === "number" ? value : null;
-}
-
-function configNumber(
-  manifest: RunManifest,
-  name: string,
-  fallback: number,
-): number {
-  const value = manifest.config[name];
-  return typeof value === "number" && value > 0 ? value : fallback;
 }
 
 function InspectorLoading({ id }: { id: string }) {
@@ -187,11 +179,21 @@ export function PersonInspector({
     "immune_strength",
   ];
 
+  const death = agent.status === "deceased" ? agent.death : null;
+
   return (
-    <aside className="side-panel inspector-panel">
+    <aside
+      className={`side-panel inspector-panel${
+        death === null ? "" : " is-deceased"
+      }`}
+    >
       <div className="panel-heading">
         <div>
-          <span className="eyebrow">Observed at tick {detail.tick}</span>
+          <span className="eyebrow">
+            {death === null
+              ? `Observed at tick ${detail.tick}`
+              : `Final state at tick ${death.tick}`}
+          </span>
           <h2>Person</h2>
         </div>
         <button
@@ -215,13 +217,28 @@ export function PersonInspector({
           </p>
         </div>
         <span
-          className={`stage-badge stage-${agent.disease.stage}`}
+          className={
+            death === null
+              ? `stage-badge stage-${agent.disease.stage}`
+              : "stage-badge stage-deceased"
+          }
         >
-          {titleCase(agent.disease.stage)}
+          {death === null ? titleCase(agent.disease.stage) : "Deceased"}
         </span>
       </div>
 
-      {isStale ? (
+      {death === null ? null : (
+        <div className="death-note" role="status">
+          <Icon name="activity" size={14} />
+          <span>
+            Died in year {precise(death.year)} at age{" "}
+            {precise(death.age)} — {titleCase(death.cause)}. Everything below
+            is the state this person died in, not a live reading.
+          </span>
+        </div>
+      )}
+
+      {isStale && death === null ? (
         <div className="stale-note">
           Detail is from tick {detail.tick}; map is at {frame.tick}.
         </div>

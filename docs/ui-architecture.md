@@ -299,7 +299,7 @@ The Run Lab desktop layout is:
 +--------------------------------------------------------------------------+
 | Human-Sim | Scenarios | Run Lab | Experiments       run/seed/status      |
 +--------------------------------------------------------------------------+
-| scenario | seed | reset | step | play/pause | speed | tick / year       |
+| scenario | seed | reset | tick | year | play/pause | pace | tick / year  |
 +--------------------------------------------------------------------------+
 | population | food | health | births/deaths | infection | diversity      |
 +-------------+--------------------------------------+---------------------+
@@ -321,7 +321,18 @@ selection and run controls. Color is never the only encoding for sea, disease,
 or selection, and legends always show units or normalization.
 
 The toolbar always displays seed, tick, year, and status. A reset or scenario
-change requires a clear run boundary in the timeline. Controls are disabled
+change requires a clear run boundary in the timeline.
+
+Playback is paced in real time per simulated year rather than in ticks per
+second, because the quantity a viewer cares about is how long a year takes to
+watch, not how often the browser polls. The control spans thirty real minutes
+per simulated year to unpaced, defaulting to ten minutes; the pace determines
+both the request size and the delay between requests, and slow paces always
+request one tick at a time so no causal round is hidden inside a batch. Pacing
+is local: it changes when the browser asks the engine to advance, never how
+the engine advances, so every pace produces the same history. Because a single
+tick can then last a minute, playback shows how much of the current interval
+has elapsed rather than leaving the screen apparently frozen. Controls are disabled
 while a synchronous mutation is in flight. The inspector distinguishes
 genetic potential, development, current condition, and culture rather than
 combining them into a misleading "fitness" score.

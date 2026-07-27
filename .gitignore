@@ -53,3 +53,6 @@ ui/coverage/
 # Tests
 .pytest_cache/
 .coverage
+
+# Local dev service pids and logs
+/.run/

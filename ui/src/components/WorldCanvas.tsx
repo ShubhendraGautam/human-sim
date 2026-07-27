@@ -19,9 +19,14 @@ import {
   screenToWorld,
   type Camera,
 } from "../lib/worldGeometry";
+import { configNumber } from "../lib/format";
 import { Icon } from "./Icon";
 
-export type AgentColorMode = "country" | "brain" | "health";
+export type AgentColorMode =
+  | "country"
+  | "brain"
+  | "health"
+  | "seafaring";
 
 export interface CanvasLayerSettings {
   terrain: boolean;
@@ -30,6 +35,7 @@ export interface CanvasLayerSettings {
   materials: boolean;
   disease: boolean;
   agents: boolean;
+  vessels: boolean;
   colorMode: AgentColorMode;
 }
 
@@ -115,6 +121,16 @@ function agentColor(
   if (mode === "brain") {
     const kind = frame.agents.brain_kind[index] ?? "deliberative";
     return BRAIN_COLORS[kind];
+  }
+  if (mode === "seafaring") {
+    // Knowing how and having a hull are different states, and the difference
+    // is what explains a person standing on open water.
+    if ((frame.agents.vessel_durability[index] ?? 0) > 0) {
+      return "#63c9f0";
+    }
+    return frame.agents.knows_seafaring[index] === true
+      ? "#3f7f96"
+      : "#6f7a72";
   }
   if (mode === "health") {
     const health = frame.agents.health_fraction[index] ?? 0;
@@ -366,6 +382,37 @@ export function WorldCanvas({
             );
           }
           context.stroke();
+        }
+
+        if (layers.vessels) {
+          // A hull is the only reason anyone survives open water, and it is
+          // spent by being there. Drawing it as a ring that fades with what
+          // is left of it makes a voyage legible while it is happening.
+          const maximum = Math.max(
+            1,
+            configNumber(manifest, "vessel_durability", 30),
+          );
+          context.lineWidth = 1.4;
+          for (let index = 0; index < frame.agents.id.length; index += 1) {
+            const durability = frame.agents.vessel_durability[index] ?? 0;
+            if (durability <= 0) {
+              continue;
+            }
+            const x = frame.agents.x[index] ?? 0;
+            const y = frame.agents.y[index] ?? 0;
+            context.globalAlpha = clamp(0.35 + durability / maximum, 0.35, 1);
+            context.strokeStyle = "#63c9f0";
+            context.beginPath();
+            context.arc(
+              projection.originX + (x + 0.5) * cellScale,
+              projection.originY + (y + 0.5) * cellScale,
+              radius + 2.6,
+              0,
+              Math.PI * 2,
+            );
+            context.stroke();
+          }
+          context.globalAlpha = 1;
         }
 
         const selectedIndex =

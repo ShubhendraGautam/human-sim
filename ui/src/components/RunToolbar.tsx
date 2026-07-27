@@ -4,6 +4,13 @@ import {
   scenarioName,
   statusLabel,
 } from "../lib/format";
+import {
+  PACE_LADDER,
+  UNPACED,
+  paceStep,
+  paceSummary,
+  type PlaybackPlan,
+} from "../lib/pace";
 import { Icon } from "./Icon";
 
 interface RunToolbarProps {
@@ -11,28 +18,39 @@ interface RunToolbarProps {
   frame: RunFrame;
   manifest: RunManifest;
   mutating: boolean;
+  paceIndex: number;
+  plan: PlaybackPlan;
   playing: boolean;
-  speed: number;
+  ticksPerYear: number;
   onPause: () => void;
   onPlay: () => void;
   onReset: () => void;
-  onSetSpeed: (speed: number) => void;
+  onSetPace: (paceIndex: number) => void;
   onStep: () => void;
+  onStepYear: () => void;
 }
+
+/** Below this the bar would flicker rather than inform. */
+const PROGRESS_VISIBLE_MS = 1_000;
 
 export function RunToolbar({
   exportUrl,
   frame,
   manifest,
   mutating,
+  paceIndex,
+  plan,
   playing,
-  speed,
+  ticksPerYear,
   onPause,
   onPlay,
   onReset,
-  onSetSpeed,
+  onSetPace,
   onStep,
+  onStepYear,
 }: RunToolbarProps) {
+  const pace = paceStep(paceIndex);
+  const showProgress = playing && plan.intervalMs >= PROGRESS_VISIBLE_MS;
   const controlDisabled = mutating || frame.status === "failed";
   return (
     <section className="run-toolbar" aria-label="Run controls">
@@ -78,7 +96,18 @@ export function RunToolbar({
           type="button"
         >
           <Icon name="step" size={16} />
-          <span>Step</span>
+          <span>Tick</span>
+        </button>
+        <button
+          aria-label="Advance one simulated year"
+          className="tool-button"
+          disabled={controlDisabled || !manifest.capabilities.step}
+          onClick={onStepYear}
+          title={`Advance one simulated year (${ticksPerYear} ticks)`}
+          type="button"
+        >
+          <Icon name="step" size={16} />
+          <span>Year</span>
         </button>
         <button
           aria-label={playing ? "Pause local playback" : "Start local playback"}
@@ -92,24 +121,29 @@ export function RunToolbar({
         </button>
       </div>
 
-      <div className="speed-control">
-        <small>Batch</small>
-        <div className="segmented-control">
-          {[1, 4, 12].map((value) => (
-            <button
-              aria-label={`${value} ticks per display update`}
-              aria-pressed={speed === value}
-              className={speed === value ? "active" : ""}
-              disabled={controlDisabled}
-              key={value}
-              onClick={() => onSetSpeed(value)}
-              title={`${value} simulation ticks per displayed frame`}
-              type="button"
-            >
-              {value}×
-            </button>
-          ))}
-        </div>
+      <div className="pace-control">
+        <small>Pace</small>
+        <input
+          aria-label="Real time per simulated year"
+          aria-valuetext={pace.description}
+          className="pace-slider"
+          disabled={controlDisabled}
+          max={PACE_LADDER.length - 1}
+          min={0}
+          onChange={(event) => onSetPace(Number(event.target.value))}
+          step={1}
+          title="Drag left to slow the run down, right to speed it up"
+          type="range"
+          value={paceIndex}
+        />
+        <span className="pace-readout">
+          <strong>
+            {pace.secondsPerYear === UNPACED
+              ? "Unpaced"
+              : `${pace.label} / year`}
+          </strong>
+          <small>{paceSummary(paceIndex, ticksPerYear)}</small>
+        </span>
       </div>
 
       <div className="tick-readout">
@@ -143,6 +177,17 @@ export function RunToolbar({
           ? "Stepping"
           : statusLabel(frame.status, playing)}
       </div>
+
+      {showProgress ? (
+        <div className="tick-progress" aria-hidden="true">
+          {/* Keyed by frame so the fill restarts with each advance; a paced
+              run is otherwise indistinguishable from a stalled one. */}
+          <span
+            key={`${frame.sequence}-${plan.intervalMs}`}
+            style={{ animationDuration: `${plan.intervalMs}ms` }}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
