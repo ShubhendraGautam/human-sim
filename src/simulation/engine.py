@@ -15,6 +15,8 @@ from typing import (
 )
 
 from .brain import BrainState, choose_action
+from . import language
+from . import neural
 from .config import SimulationConfig
 from .entities import EntityKind, EntityRegistry
 from .genetics import (
@@ -98,6 +100,7 @@ class Simulation:
         self.total_inventions = 0
         self.total_sea_crossings = 0
         self.total_infections = 0
+        self.total_coinages = 0
         self.total_recoveries = 0
         self._last_food_consumed = 0.0
         self._last_food_spoiled = 0.0
@@ -283,6 +286,15 @@ class Simulation:
             traits=traits,
             culture=culture,
             brain=BrainState(),
+            lexicon=language.Lexicon(),
+            network=neural.founder_network(
+                self.rng,
+                config.neural_hidden_units,
+                len(ActionKind),
+                config.neural_founder_scale
+                if config.neural_brains_enabled
+                else 0.0,
+            ),
             reproductive_role=self.rng.choice(tuple(ReproductiveRole)),
             birth_country_id=country.id,
             belief_id=self.scenario.belief_id_for(country),
@@ -2230,12 +2242,108 @@ class Simulation:
             allow_belief=True,
             channel=0xC02,
         )
+        spoken = self._speak(agent, target)
         self._record(Event(
             self.tick,
             "communicate",
             (agent.id, target.id),
+            spoken,
         ))
         return True
+
+    def _topic(self, agent: Agent, target: Agent) -> int:
+        """What this person is in a position to talk about.
+
+        A speaker refers to their own circumstances, so the topic is read off
+        the situation rather than chosen freely: someone starving talks about
+        hunger, someone at a shore about water, someone carrying a child
+        about the child. This is what grounds a word — the listener can see
+        the same thing, which is the only reason copying a sound can ever
+        converge on a shared meaning.
+        """
+
+        config = self.config
+        if agent.energy < config.maximum_energy * 0.25:
+            return language.MEANING_INDEX["hunger"]
+        if self.world.is_coast(agent.x, agent.y) or self.world.is_sea(
+            agent.x,
+            agent.y,
+        ):
+            return language.MEANING_INDEX["water"]
+        if agent.infection_stage is InfectionStage.INFECTIOUS:
+            return language.MEANING_INDEX["sickness"]
+        if self.dependents_by_guardian.get(agent.id):
+            return language.MEANING_INDEX["child"]
+        if agent.partner_id is not None:
+            return language.MEANING_INDEX["partner"]
+        if agent.inventory > config.harvest_amount:
+            return language.MEANING_INDEX["food"]
+        if agent.material_inventory > 0.0:
+            return language.MEANING_INDEX["stone"]
+        if abs(agent.x - target.x) + abs(agent.y - target.y) > 1:
+            return language.MEANING_INDEX["far"]
+        return language.MEANING_INDEX["person"]
+
+    def _speak(
+        self,
+        agent: Agent,
+        target: Agent,
+    ) -> Tuple[Tuple[str, float], ...]:
+        """Say one thing, and let the listener make of it what they will.
+
+        Nothing here checks whether a word is the "right" one. The speaker
+        uses whatever form they hold, the listener copies it or does not, and
+        agreement is whatever survives that process across a population.
+        """
+
+        if not self.config.language_enabled:
+            return ()
+        meaning = self._topic(agent, target)
+        word = agent.lexicon.word_for(meaning)
+        coined = False
+        if word == language.NO_WORD:
+            if (
+                self._stable_uniform(agent.id, 0xC10 + meaning)
+                >= self.config.language_invention_rate
+            ):
+                return ()
+            word = language.coin(
+                self._stable_uniform(agent.id, 0xC11 + meaning),
+                self._stable_uniform(agent.id, 0xC12 + meaning),
+            )
+            agent.lexicon.learn(meaning, word)
+            coined = True
+            self.total_coinages += 1
+
+        heard = word
+        # Willingness to take someone else's word for it is the same
+        # disposition that carries any other cultural signal, so it leans on
+        # conformity and how much the listener has to gain: a person with no
+        # word at all adopts far more readily than one replacing their own.
+        receptiveness = (
+            target.traits.conformity * (1.0 - self.config.cultural_influence)
+            + target.culture.conformity * self.config.cultural_influence
+        )
+        threshold = self.config.language_adoption_rate * (
+            0.55 + 0.45 * receptiveness
+        )
+        if self._stable_uniform(target.id, 0xC13 + meaning) < threshold:
+            if (
+                self._stable_uniform(target.id, 0xC14 + meaning)
+                < self.config.language_mutation_rate
+            ):
+                heard = language.mutate(
+                    word,
+                    self._stable_uniform(target.id, 0xC15 + meaning),
+                    self._stable_uniform(target.id, 0xC16 + meaning),
+                )
+            target.lexicon.hear(meaning, heard)
+
+        return (
+            ("meaning", float(meaning)),
+            ("word", float(word)),
+            ("coined", 1.0 if coined else 0.0),
+        )
 
     def _record_social_benefit(
         self,
@@ -2421,6 +2529,25 @@ class Simulation:
                 (agent.belief_id, partner.belief_id)
             ),
             generation=max(agent.generation, partner.generation) + 1,
+            # Skipped entirely when brains are off, because recombining
+            # them would draw from the pair's generator and shift every
+            # later decision in the run. An off switch that still perturbs
+            # the random stream is not an off switch.
+            network=(
+                neural.inherit(
+                    agent.network,
+                    partner.network,
+                    pair_rng,
+                    self.config.neural_mutation_rate,
+                    self.config.neural_mutation_scale,
+                    self.config.neural_weight_limit,
+                )
+                if self.config.neural_brains_enabled
+                else neural.Network(
+                    self.config.neural_hidden_units,
+                    len(ActionKind),
+                )
+            ),
             conception_tick=self.tick,
             due_tick=self.tick + gestation_ticks,
             grandparent_ids=tuple(sorted(set(
@@ -2550,6 +2677,8 @@ class Simulation:
             traits=traits,
             culture=pregnancy.culture,
             brain=BrainState(),
+            lexicon=language.Lexicon(),
+            network=pregnancy.network,
             reproductive_role=pregnancy.reproductive_role,
             birth_country_id=region,
             belief_id=pregnancy.belief_id,

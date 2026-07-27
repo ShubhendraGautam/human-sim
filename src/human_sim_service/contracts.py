@@ -6,17 +6,19 @@ or an in-process test harness.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional
+from typing import Dict, Mapping, Optional, Tuple
 
 
 PROTOCOL_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 1
 FRAME_SCHEMA_VERSION = 1
-AGENT_DETAIL_SCHEMA_VERSION = 1
+AGENT_DETAIL_SCHEMA_VERSION = 2
+EVENT_FEED_SCHEMA_VERSION = 1
 
 RUN_MANIFEST_KIND = "run_manifest"
 RENDER_FRAME_KIND = "render_frame"
 AGENT_DETAIL_KIND = "agent_detail"
+EVENT_FEED_KIND = "event_feed"
 
 RUN_STATUS_PAUSED = "paused"
 RUN_STATUS_STEPPING = "stepping"
@@ -154,6 +156,42 @@ class AgentDetail:
             "status": self.status,
             "tick": self.tick,
             "agent": _copy_mapping(self.agent),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EventFeed:
+    """Recent causal events, newest first.
+
+    This is an observation like any other projection: the log is written by
+    the engine as things happen and read here, never the other way round.
+    """
+
+    run_id: str
+    sequence: int
+    status: str
+    tick: int
+    year: float
+    events: Tuple[Mapping[str, object], ...]
+    oldest_retained_tick: int
+    dropped: bool
+
+    def __post_init__(self) -> None:
+        _validate_envelope(self.run_id, self.sequence, self.status)
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "protocol_version": PROTOCOL_VERSION,
+            "schema_version": EVENT_FEED_SCHEMA_VERSION,
+            "kind": EVENT_FEED_KIND,
+            "run_id": self.run_id,
+            "sequence": self.sequence,
+            "status": self.status,
+            "tick": self.tick,
+            "year": self.year,
+            "events": [_copy_mapping(event) for event in self.events],
+            "oldest_retained_tick": self.oldest_retained_tick,
+            "dropped": self.dropped,
         }
 
 

@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import Any, Dict
 
-CONFIG_SCHEMA_VERSION = 3
+CONFIG_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +197,24 @@ class SimulationConfig:
     relationship_preference_weight: float = 0.55
     communication_weight: float = 0.55
     communication_energy_cost: float = 0.08
+    # Language. A population starts mute; these decide how readily a word is
+    # coined when one is missing, copied when one is heard, and misheard when
+    # it is copied. At rate zero nobody ever speaks a word and runs reproduce
+    # exactly as they did before language existed.
+    # Inherited decision networks. At weight zero the network is evaluated
+    # but contributes nothing, and runs reproduce the model from before
+    # brains were heritable; that is the arm every experiment compares to.
+    neural_brains_enabled: bool = True
+    neural_hidden_units: int = 6
+    neural_output_weight: float = 0.35
+    neural_founder_scale: float = 0.12
+    neural_mutation_rate: float = 0.06
+    neural_mutation_scale: float = 0.09
+    neural_weight_limit: float = 3.0
+    language_enabled: bool = True
+    language_invention_rate: float = 0.04
+    language_adoption_rate: float = 0.8
+    language_mutation_rate: float = 0.002
     social_success_memory_years: float = 1.0
 
     # Pair bonding. Courtship is one-sided with consent, so a couple pays the
@@ -231,19 +249,26 @@ class SimulationConfig:
             "metrics_history_capacity",
             "event_log_capacity",
             "death_record_capacity",
+            "neural_hidden_units",
         )
         for name in integer_fields:
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"{name} must be an integer")
-        for name in ("wrap_world", "materials_renewable"):
+        for name in ("wrap_world", "materials_renewable",
+                     "language_enabled", "neural_brains_enabled"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
         for item in fields(self):
             value = getattr(self, item.name)
             if (
                 item.name not in integer_fields
-                and item.name not in ("wrap_world", "materials_renewable")
+                and item.name not in (
+                    "wrap_world",
+                    "materials_renewable",
+                    "language_enabled",
+                    "neural_brains_enabled",
+                )
                 and (
                     not isinstance(value, (int, float))
                     or isinstance(value, bool)
@@ -401,12 +426,21 @@ class SimulationConfig:
             "relationship_preference_weight",
             "communication_weight",
             "communication_energy_cost",
+            "neural_output_weight",
+            "neural_founder_scale",
+            "neural_mutation_rate",
+            "neural_mutation_scale",
+            "neural_weight_limit",
+            "language_invention_rate",
+            "language_adoption_rate",
+            "language_mutation_rate",
             "courtship_weight",
             "courtship_energy_cost",
             "bond_movement_weight",
             "metrics_history_capacity",
             "event_log_capacity",
             "death_record_capacity",
+            "neural_hidden_units",
         )
         for name in nonnegative:
             if getattr(self, name) < 0:

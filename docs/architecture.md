@@ -108,6 +108,16 @@ World layers store terrain, country, food capacity, annual productivity,
 seasonal amplitude/phase, material capacity, and occupancy separately. Food
 renewal scales with carrying capacity, remaining ecological room, elapsed
 years, and the current latitude season. Materials are nonrenewable by default.
+
+Renewal is expressed as a share of the remaining deficit and swept a row at a
+time. A full cell then grows by nothing without needing a special case, an
+unproductive cell stays at zero on its own, and the season is hoisted out of
+the inner expression so each row is read, grown, and written in bulk. Which
+cells are productive is fixed when the world is built, so the reported
+seasonal average is a weighted sum over rows rather than another sweep of the
+map. The sweep remains linear in map area — cost is set by the size of the
+world, not by how many people are alive in it — which is the binding
+constraint on large worlds and is tracked in `docs/design-checklist.md`.
 Harvest and renewal flows are per-tick observer metrics. Agent-held stocks,
 consumption, spoilage, construction/research use, and inventory lost on death
 are also recorded, allowing per-tick stock-flow balance checks without feeding
@@ -301,6 +311,11 @@ segregation, lineage diversity, trait distributions, resource inequality,
 specialization, mobility, and survival curves.
 
 ## Near-term extension order
+
+`docs/design-checklist.md` is the live plan: it holds this order interleaved
+with interface and brain work, the acceptance gates each item must clear, and
+the decisions still open. The list below is the engine-side sequence it draws
+from.
 
 1. Separate lightweight visualization snapshots from full resumable
    checkpoints and persist experiment streams with the code revision.

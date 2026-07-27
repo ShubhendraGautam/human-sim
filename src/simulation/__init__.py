@@ -40,6 +40,7 @@ from .models import (
     Terrain,
     Traits,
 )
+from . import neural
 from .scenario import CountrySpec, Rectangle, Scenario
 from .relationships import RelationshipStore, RelationshipView
 
@@ -68,6 +69,7 @@ __all__ = [
     "RelationshipStore",
     "RelationshipView",
     "Scenario",
+    "neural",
     "Simulation",
     "SimulationConfig",
     "Terrain",

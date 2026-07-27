@@ -217,6 +217,57 @@ export interface RelationshipDetail {
   last_seen_tick: number;
 }
 
+export interface LifeMoment {
+  tick: number;
+  year: number;
+  kind: string;
+  actors: string[];
+}
+
+export interface Biography {
+  born_year: number;
+  founder: boolean;
+  died_year: number;
+  age_at_death: number;
+  cause: string;
+  generation: number;
+  birth_country: number;
+  died_in_country: number;
+  living_children: number;
+  living_grandchildren: number;
+  had_partner_at_death: boolean;
+  bonded_years: number | null;
+  knew_seafaring: boolean;
+  childhood_development: number;
+  body_condition_at_death: number;
+  frailty_at_death: number;
+  infection_at_death: string;
+  moments: LifeMoment[];
+  moments_complete: boolean;
+}
+
+export interface WorldEvent {
+  tick: number;
+  year: number;
+  kind: string;
+  actors: string[];
+  details: Record<string, number>;
+  /** The utterance itself, when the event was someone speaking. */
+  said?: string;
+  /** The situation the word was used for. */
+  about?: string;
+  /** Whether this was the first time anyone said it. */
+  coined?: boolean;
+}
+
+export interface EventFeed extends ProtocolEnvelope {
+  tick: number;
+  year: number;
+  events: WorldEvent[];
+  oldest_retained_tick: number;
+  dropped: boolean;
+}
+
 export interface AgentDetail {
   id: string;
   /** The dead remain observable while the engine still remembers them. */
@@ -227,6 +278,7 @@ export interface AgentDetail {
     cause: string;
     age: number;
   } | null;
+  biography: Biography | null;
   location: {
     x: number;
     y: number;

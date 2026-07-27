@@ -142,15 +142,15 @@ export function LayerPanel({
         <LayerRow
           checked={layers.food}
           icon="food"
-          label="Food"
-          meta={`${percent(foodFraction)} capacity`}
+          label="Food · growth"
+          meta={`${percent(foodFraction)} capacity · drawn as greenery`}
           onChange={(checked) => onToggle("food", checked)}
         />
         <LayerRow
           checked={layers.materials}
           icon="material"
-          label="Materials"
-          meta={`${percent(materialFraction)} remaining`}
+          label="Materials · rock"
+          meta={`${percent(materialFraction)} remaining · drawn as stone`}
           onChange={(checked) => onToggle("materials", checked)}
         />
         <LayerRow
@@ -203,6 +203,9 @@ export function LayerPanel({
         <Icon name="spark" size={14} />
         <p>
           Layers are observations only. They never change agent decisions.
+          Trees and stone are how the food and material layers are drawn, not
+          things standing in the world — nothing has been built or planted
+          yet. Zoom in for detail; zoomed out, people become density.
         </p>
       </div>
     </aside>

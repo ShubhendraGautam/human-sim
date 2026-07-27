@@ -27,14 +27,20 @@ class World:
         "country",
         "capacity",
         "productivity",
+        "renewal_rate",
         "seasonal_amplitude",
         "seasonal_phase",
         "resources",
         "material_capacity",
         "material_productivity",
+        "material_renewal_rate",
         "materials",
         "has_sea",
         "country_land_cells",
+        "_row_productive_counts",
+        "_productive_cells",
+        "_fastest_renewal",
+        "_fastest_material_renewal",
         "_occupants",
         "_occupants_by_kind",
         "_interior_offsets",
@@ -143,6 +149,31 @@ class World:
                 * config.initial_resource_fraction
                 * variation
             )
+        # Regeneration is a fraction of the remaining deficit, and that
+        # fraction is a property of the cell rather than of its stock. Storing
+        # it directly keeps the per-tick sweep free of a division, and leaves
+        # room for biomes that renew at genuinely different speeds.
+        self.renewal_rate = array("d", [0.0]) * cell_count
+        self.material_renewal_rate = array("d", [0.0]) * cell_count
+        row_counts = [0] * config.height
+        for index in range(cell_count):
+            capacity = self.capacity[index]
+            if capacity > 0.0:
+                self.renewal_rate[index] = self.productivity[index] / capacity
+                row_counts[index // config.width] += 1
+            material_capacity = self.material_capacity[index]
+            if material_capacity > 0.0:
+                self.material_renewal_rate[index] = (
+                    self.material_productivity[index] / material_capacity
+                )
+        self._row_productive_counts = row_counts
+        self._productive_cells = sum(row_counts)
+        self._fastest_renewal = max(self.renewal_rate, default=0.0)
+        self._fastest_material_renewal = max(
+            self.material_renewal_rate,
+            default=0.0,
+        )
+
         self._occupants_by_kind: Dict[EntityKind, Dict[int, List[int]]] = {
             kind: {} for kind in EntityKind
         }
@@ -247,78 +278,97 @@ class World:
         self.last_material_regenerated = 0.0
 
     def regenerate(self, tick: int = 0) -> None:
+        elapsed_years = 1.0 / self.config.ticks_per_year
         row_factors = self._seasonal_row_factors(tick)
-        (
-            self.last_food_regenerated,
-            self.last_seasonal_productivity,
-        ) = self._regenerate_food(
-            1.0 / self.config.ticks_per_year,
+        self.last_food_regenerated = self._grow_layer(
+            self.resources,
+            self.capacity,
+            self.renewal_rate,
+            self._fastest_renewal,
+            elapsed_years,
             row_factors,
         )
+        self.last_seasonal_productivity = self._seasonal_mean(row_factors)
         if self.config.materials_renewable:
-            self.last_material_regenerated = self._regenerate_layer(
+            self.last_material_regenerated = self._grow_layer(
                 self.materials,
                 self.material_capacity,
-                self.material_productivity,
-                1.0 / self.config.ticks_per_year,
+                self.material_renewal_rate,
+                self._fastest_material_renewal,
+                elapsed_years,
+                None,
             )
 
-    def _regenerate_food(
+    def _seasonal_mean(self, row_factors: Sequence[float]) -> float:
+        """Average season over productive cells, without visiting them.
+
+        Which cells are productive is fixed when the world is built, so the
+        average is a weighted sum over rows rather than a sweep of the map.
+        """
+
+        if not self._productive_cells:
+            return 1.0
+        weighted = 0.0
+        for y, count in enumerate(self._row_productive_counts):
+            if count:
+                weighted += row_factors[y] * count
+        return weighted / self._productive_cells
+
+    def _grow_layer(
         self,
-        elapsed_years: float,
-        row_factors: Sequence[float],
-    ) -> Tuple[float, float]:
-        total_growth = 0.0
-        factor_sum = 0.0
-        productive_cells = 0
-        width = self.config.width
-        for index, current in enumerate(self.resources):
-            capacity = self.capacity[index]
-            if capacity <= 0.0:
-                continue
-            factor = row_factors[index // width]
-            factor_sum += factor
-            productive_cells += 1
-            if current >= capacity:
-                continue
-            growth = (
-                self.productivity[index]
-                * elapsed_years
-                * factor
-                * (1.0 - current / capacity)
-            )
-            updated = min(capacity, current + max(growth, 0.0))
-            total_growth += updated - current
-            self.resources[index] = updated
-        return (
-            total_growth,
-            factor_sum / productive_cells if productive_cells else 1.0,
-        )
-
-    @staticmethod
-    def _regenerate_layer(
-        values: MutableSequence[float],
+        values: array,
         capacities: Sequence[float],
-        productivity: Sequence[float],
+        rates: Sequence[float],
+        fastest_rate: float,
         elapsed_years: float,
-        multipliers: Optional[Sequence[float]] = None,
+        row_factors: Optional[Sequence[float]],
     ) -> float:
+        """Regrow one layer toward capacity, a row at a time.
+
+        Growth is a share of the remaining deficit, so a full cell grows by
+        nothing and needs no special case, and a cell with no capacity — sea —
+        stays at zero on its own. Working per row hoists the season out of the
+        inner expression and lets the row be read, grown, and written as three
+        bulk operations instead of a few thousand indexed ones. The cost is
+        still linear in the map, but with a much smaller constant.
+        """
+
+        width = self.config.width
         total_growth = 0.0
-        for index, current in enumerate(values):
-            capacity = capacities[index]
-            if capacity > 0.0 and current < capacity:
-                multiplier = (
-                    multipliers[index] if multipliers is not None else 1.0
-                )
-                growth = (
-                    productivity[index]
-                    * elapsed_years
-                    * multiplier
-                    * (1.0 - current / capacity)
-                )
-                updated = min(capacity, current + max(growth, 0.0))
-                total_growth += updated - current
-                values[index] = updated
+        # A share of a deficit cannot overshoot unless the share exceeds the
+        # whole, which the default physics never approaches. Pay for the clamp
+        # only when a configuration makes overshoot arithmetically possible.
+        overshoot_possible = fastest_rate * elapsed_years * max(
+            row_factors or (1.0,)
+        ) > 1.0
+        for y in range(self.config.height):
+            start = y * width
+            end = start + width
+            season = 1.0 if row_factors is None else row_factors[y]
+            step = elapsed_years * season
+            current = values[start:end]
+            row_capacity = capacities[start:end]
+            row_rate = rates[start:end]
+            if overshoot_possible:
+                growth = [
+                    min(
+                        capacity - value,
+                        max(rate * step * (capacity - value), 0.0),
+                    )
+                    for value, capacity, rate
+                    in zip(current, row_capacity, row_rate)
+                ]
+            else:
+                growth = [
+                    rate * step * (capacity - value)
+                    for value, capacity, rate
+                    in zip(current, row_capacity, row_rate)
+                ]
+            total_growth += sum(growth)
+            values[start:end] = array(
+                "d",
+                [value + gained for value, gained in zip(current, growth)],
+            )
         return total_growth
 
     def _seasonal_row_factors(self, tick: int) -> List[float]:

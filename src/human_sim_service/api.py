@@ -215,6 +215,14 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
     ) -> Dict[str, object]:
         return runs.agent_detail(run_id, agent_id)
 
+    @app.get("/api/v1/runs/{run_id}/events")
+    def events(
+        run_id: str,
+        since_tick: int = -1,
+        limit: int = 200,
+    ) -> Dict[str, object]:
+        return runs.events(run_id, since_tick=since_tick, limit=limit)
+
     @app.get("/api/v1/runs/{run_id}/snapshot")
     def export_snapshot(run_id: str) -> Dict[str, object]:
         return runs.export_snapshot(run_id)

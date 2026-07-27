@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>sprites</title>
+<style>body{background:#0c1a16;margin:0;padding:16px;font:12px system-ui;color:#cfd8d2}
+canvas{image-rendering:auto}div{margin-bottom:10px}</style></head>
+<body><div id="out"></div>
+<script type="module">
+import { sceneryAtlas, drawScenery, personSprite, vesselSprite } from "/src/lib/sprites.ts";
+const atlas = sceneryAtlas(2);
+const out = document.getElementById("out");
+const seasons = ["spring","summer","autumn","winter"];
+const plants = ["grass","shrub","conifer","broadleaf","poplar"];
+for (const size of [16, 28, 64]) {
+  const row = document.createElement("div");
+  row.textContent = `cell ${size}px`;
+  const c = document.createElement("canvas");
+  c.width = (plants.length*4+6) * size; c.height = size;
+  const x = c.getContext("2d");
+  x.fillStyle = "#3d5136"; x.fillRect(0,0,c.width,c.height);
+  let i = 0;
+  for (const s of seasons) for (const p of plants) drawScenery(x, atlas, p, s, (i++)*size, 0, size);
+  for (const r of ["pebbles","boulder","outcrop"]) drawScenery(x, atlas, r, "summer", (i++)*size, 0, size);
+  for (const col of ["#f5bd68","#65c6c2"]) {
+    const sp = personSprite(col, 2, false); if (sp) x.drawImage(sp,(i++)*size,0,size,size);
+    const ch = personSprite(col, 2, true); if (ch) x.drawImage(ch,(i++)*size,0,size,size);
+  }
+  const v = vesselSprite(2); if (v) x.drawImage(v,(i++)*size,0,size,size);
+  row.appendChild(document.createElement("br")); row.appendChild(c); out.appendChild(row);
+}
+</script></body></html>

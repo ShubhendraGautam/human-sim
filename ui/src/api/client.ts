@@ -4,6 +4,7 @@ import {
   assertWorldManifest,
   type AgentDetailEnvelope,
   type CreateRunRequest,
+  type EventFeed,
   type RunFrame,
   type RunManifest,
   type RunSession,
@@ -21,6 +22,7 @@ export interface SimulationClient {
     runId: string,
     agentId: string,
   ): Promise<AgentDetailEnvelope>;
+  getEvents(runId: string, sinceTick: number): Promise<EventFeed>;
   getExportUrl(runId: string): string | null;
   dispose(): void;
 }
@@ -98,6 +100,13 @@ export class ApiSimulationClient implements SimulationClient {
     );
     assertAgentDetailEnvelope(detail);
     return detail;
+  }
+
+  async getEvents(runId: string, sinceTick: number): Promise<EventFeed> {
+    return this.#request<EventFeed>(
+      `/api/v1/runs/${encodeURIComponent(runId)}/events` +
+        `?since_tick=${Math.max(-1, Math.trunc(sinceTick))}&limit=120`,
+    );
   }
 
   getExportUrl(runId: string): string {

@@ -38,6 +38,53 @@ export function projectWorld(
   };
 }
 
+export interface CellBounds {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
+/**
+ * The rectangle of cells that can actually be seen.
+ *
+ * Without this, every per-cell layer walks the whole map on every frame and a
+ * large world costs more to draw than to simulate. With it, drawing is bounded
+ * by the viewport: a hundredfold larger world shows the same number of cells
+ * and costs the same to paint.
+ */
+export function visibleCells(
+  projection: WorldProjection,
+  canvasWidth: number,
+  canvasHeight: number,
+  worldWidth: number,
+  worldHeight: number,
+  margin = 1,
+): CellBounds {
+  if (projection.scale <= 0) {
+    return { startX: 0, startY: 0, endX: 0, endY: 0 };
+  }
+  const clampRange = (value: number, limit: number) =>
+    Math.min(limit, Math.max(0, value));
+  const startX = clampRange(
+    Math.floor((0 - projection.originX) / projection.scale) - margin,
+    worldWidth,
+  );
+  const startY = clampRange(
+    Math.floor((0 - projection.originY) / projection.scale) - margin,
+    worldHeight,
+  );
+  const endX = clampRange(
+    Math.ceil((canvasWidth - projection.originX) / projection.scale) + margin,
+    worldWidth,
+  );
+  const endY = clampRange(
+    Math.ceil((canvasHeight - projection.originY) / projection.scale) + margin,
+    worldHeight,
+  );
+  return { startX, startY, endX, endY };
+}
+
 export function screenToWorld(
   screenX: number,
   screenY: number,

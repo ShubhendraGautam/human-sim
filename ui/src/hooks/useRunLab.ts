@@ -187,6 +187,36 @@ export function useRunLab(
     Math.floor((state.frame?.tick ?? 0) / 12),
   ]);
 
+  // Events are fetched after each frame rather than inside it. Frames are
+  // latest-wins and may be skipped; the event log is a record that should not
+  // be, so it is asked for separately and by tick rather than by frame.
+  const eventTick = state.frame?.tick ?? -1;
+  useEffect(() => {
+    const runId = state.manifest?.run_id;
+    if (runId === undefined || eventTick < 0) {
+      return;
+    }
+    let active = true;
+    void client
+      .getEvents(runId, stateRef.current.lastEventTick)
+      .then((feed) => {
+        if (active) {
+          dispatch({
+            kind: "events_received",
+            events: feed.events,
+            dropped: feed.dropped,
+            tick: feed.tick,
+          });
+        }
+      })
+      .catch(() => {
+        // A missing notification must never break the run it describes.
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, state.manifest?.run_id, eventTick]);
+
   const reset = useCallback(async (): Promise<void> => {
     const manifest = stateRef.current.manifest;
     if (manifest === null || steppingRef.current) {

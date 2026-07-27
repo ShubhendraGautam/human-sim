@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass
 from typing import Dict, Mapping, Optional, Protocol, Tuple
 
+from src.simulation import language
 from src.simulation import (
     CONFIG_SCHEMA_VERSION,
     GENOME_SCHEMA_VERSION,
@@ -42,6 +43,22 @@ class BackendAgent:
     agent: Mapping[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class BackendEvents:
+    """A window onto the engine's bounded event log.
+
+    The log keeps a fixed number of recent events, so a reader that stops
+    asking for a while will miss some. ``oldest_retained_tick`` is what lets
+    that reader notice rather than silently show a gap as continuity.
+    """
+
+    tick: int
+    year: float
+    events: Tuple[Mapping[str, object], ...]
+    oldest_retained_tick: int
+    dropped: bool
+
+
 class SimulationBackend(Protocol):
     """Minimum interface a Python, native, or remote engine must implement."""
 
@@ -56,6 +73,9 @@ class SimulationBackend(Protocol):
 
     def agent(self, agent_id: int) -> BackendAgent:
         """Return deep data for one living agent or raise ``KeyError``."""
+
+    def events(self, since_tick: int = -1, limit: int = 200) -> BackendEvents:
+        """Return recent events, newest first."""
 
     def export_snapshot(self) -> Dict[str, object]:
         """Return the backend's full visualization/export snapshot."""
@@ -250,6 +270,10 @@ class PythonSimulationBackend:
                 "cause": death.cause,
                 "age": death.agent.age,
             },
+            "biography": (
+                None if death is None
+                else _biography(simulation, agent, death)
+            ),
             "location": {
                 "x": agent.x,
                 "y": agent.y,
@@ -360,6 +384,54 @@ class PythonSimulationBackend:
         }
         return BackendAgent(tick=simulation.tick, agent=detail)
 
+    def events(
+        self,
+        since_tick: int = -1,
+        limit: int = 200,
+    ) -> BackendEvents:
+        simulation = self._simulation
+        log = simulation.events
+        capped = max(0, int(limit))
+        selected = []
+        # Newest first, and stop as soon as the window is full: a caller
+        # polling every tick reads a handful of entries rather than walking
+        # the whole log each time.
+        for event in reversed(log):
+            if event.tick <= since_tick or len(selected) >= capped:
+                break
+            details = {name: value for name, value in event.details}
+            record = {
+                "tick": event.tick,
+                "year": event.tick / simulation.config.ticks_per_year,
+                "kind": event.kind,
+                "actors": [str(actor) for actor in event.actors],
+                "details": details,
+            }
+            # An utterance is stored as numbers because the event log is
+            # numeric. Spelling it out is a reading, not a translation: the
+            # sounds are whatever was coined, and the meaning is the situation
+            # both speakers could see.
+            word = details.get("word")
+            if word is not None:
+                record["said"] = language.spell(int(word))
+                record["about"] = language.MEANINGS[
+                    int(details.get("meaning", 0)) % len(language.MEANINGS)
+                ]
+                record["coined"] = bool(details.get("coined", 0.0))
+            selected.append(record)
+        oldest = log[0].tick if log else simulation.tick
+        return BackendEvents(
+            tick=simulation.tick,
+            year=simulation.tick / simulation.config.ticks_per_year,
+            events=tuple(selected),
+            oldest_retained_tick=oldest,
+            # The caller asked for everything after a tick the log no longer
+            # reaches back to, so something happened it will never see.
+            dropped=(
+                since_tick >= 0 and bool(log) and oldest > since_tick + 1
+            ),
+        )
+
     def export_snapshot(self) -> Dict[str, object]:
         return self._simulation.snapshot(
             include_world=True,
@@ -379,6 +451,82 @@ def python_backend_factory(
         seed=seed,
         scenario=scenario,
     )
+
+
+def _biography(
+    simulation: Simulation,
+    agent: object,
+    death: object,
+) -> Dict[str, object]:
+    """What can honestly be said about a life once it has ended.
+
+    Everything here is read off state the engine already kept, not a
+    narrative the engine maintained for the sake of telling one. Two of the
+    values are deliberately about survivors rather than the person: how many
+    of their children outlived them, and how much of the population now
+    descends from them. Those are the only marks a life leaves that the model
+    can still see after the fact — the person's own memories went back to the
+    relationship store when they died.
+    """
+
+    ticks_per_year = simulation.config.ticks_per_year
+    agent_id = agent.id
+    living_children = 0
+    living_grandchildren = 0
+    for other in simulation.agents.values():
+        parents = other.parents
+        if parents is not None and agent_id in parents:
+            living_children += 1
+        if agent_id in other.grandparent_ids:
+            living_grandchildren += 1
+
+    moments = [
+        {
+            "tick": event.tick,
+            "year": event.tick / ticks_per_year,
+            "kind": event.kind,
+            "actors": [str(actor) for actor in event.actors],
+        }
+        for event in simulation.events
+        if agent_id in event.actors
+    ]
+    log = simulation.events
+    earliest_remembered = log[0].tick if log else death.tick
+
+    died_year = death.tick / ticks_per_year
+    # Founders are seeded at an assortment of ages, so their birth_tick is
+    # when the run started rather than when they were born. Deriving birth
+    # from age keeps the arithmetic true for everyone, and a negative year is
+    # not an error — it says this person was already alive at tick zero.
+    born_year = died_year - agent.age
+
+    return {
+        "born_year": born_year,
+        "founder": born_year < 0.0,
+        "died_year": died_year,
+        "age_at_death": agent.age,
+        "cause": death.cause,
+        "generation": agent.generation,
+        "birth_country": agent.birth_country_id,
+        "died_in_country": simulation.world.country_at(agent.x, agent.y),
+        "living_children": living_children,
+        "living_grandchildren": living_grandchildren,
+        "had_partner_at_death": agent.partner_id is not None,
+        "bonded_years": (
+            None if agent.bond_since_tick < 0
+            else (death.tick - agent.bond_since_tick) / ticks_per_year
+        ),
+        "knew_seafaring": agent.knows_seafaring,
+        "childhood_development": agent.development_index,
+        "body_condition_at_death": agent.body_condition,
+        "frailty_at_death": agent.frailty,
+        "infection_at_death": agent.infection_stage.name.lower(),
+        "moments": moments,
+        # The log is bounded, so a long-lived person's early years may have
+        # scrolled out of it. Say so rather than let a partial record read as
+        # a complete one.
+        "moments_complete": earliest_remembered <= agent.birth_tick,
+    }
 
 
 def _fraction(value: float, maximum: float) -> float:

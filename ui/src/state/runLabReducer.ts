@@ -4,6 +4,7 @@ import {
   type RunFrame,
   type RunManifest,
   type TimelinePoint,
+  type WorldEvent,
 } from "../api/contracts";
 import { DEFAULT_PACE_INDEX, PACE_LADDER } from "../lib/pace";
 
@@ -22,8 +23,14 @@ export interface RunLabState {
   selectedAgentId: string | null;
   detail: AgentDetailEnvelope | null;
   detailLoading: boolean;
+  /** Newest first, capped; the engine's own log is bounded too. */
+  events: WorldEvent[];
+  eventsDropped: boolean;
+  lastEventTick: number;
   error: string | null;
 }
+
+const EVENT_LIMIT = 400;
 
 export const initialRunLabState: RunLabState = {
   loadState: "loading",
@@ -35,6 +42,9 @@ export const initialRunLabState: RunLabState = {
   selectedAgentId: null,
   detail: null,
   detailLoading: false,
+  events: [],
+  eventsDropped: false,
+  lastEventTick: -1,
   error: null,
 };
 
@@ -49,7 +59,13 @@ export type RunLabAction =
   | { kind: "agent_selected"; agentId: string | null }
   | { kind: "detail_started"; agentId: string }
   | { kind: "detail_received"; detail: AgentDetailEnvelope }
-  | { kind: "detail_failed"; agentId: string };
+  | { kind: "detail_failed"; agentId: string }
+  | {
+      kind: "events_received";
+      events: WorldEvent[];
+      dropped: boolean;
+      tick: number;
+    };
 
 function appendHistory(
   history: TimelinePoint[],
@@ -82,6 +98,9 @@ export function runLabReducer(
         selectedAgentId: null,
         detail: null,
         detailLoading: false,
+        events: [],
+        eventsDropped: false,
+        lastEventTick: -1,
         error: null,
       };
     case "mutation_started":
@@ -166,5 +185,21 @@ export function runLabReducer(
         detail: null,
         detailLoading: false,
       };
+    case "events_received": {
+      if (action.events.length === 0) {
+        return action.dropped === state.eventsDropped
+          ? state
+          : { ...state, eventsDropped: action.dropped };
+      }
+      // The feed is a window, not an archive: newest first, capped, and the
+      // engine's own log is bounded behind it. Once dropped is set it stays
+      // set, because the gap it reports never gets filled in later.
+      return {
+        ...state,
+        events: [...action.events, ...state.events].slice(0, EVENT_LIMIT),
+        eventsDropped: state.eventsDropped || action.dropped,
+        lastEventTick: Math.max(state.lastEventTick, action.tick),
+      };
+    }
   }
 }

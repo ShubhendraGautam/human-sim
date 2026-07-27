@@ -9,6 +9,7 @@ import {
   type AgentDetailEnvelope,
   type BrainKind,
   type CreateRunRequest,
+  type EventFeed,
   type InfectionStage,
   type ResourceLayers,
   type RunFrame,
@@ -531,6 +532,7 @@ function buildAgentDetail(
     // The fixture never kills anyone; death is only observable on real runs.
     status: "living",
     death: null,
+    biography: null,
     location: {
       x: numericAt(frame.agents.x, index),
       y: numericAt(frame.agents.y, index),
@@ -743,6 +745,27 @@ export class DemoSimulationClient implements SimulationClient {
       status: session.frame.status,
       tick: session.frame.tick,
       agent: buildAgentDetail(session.manifest, session.frame, index),
+    });
+  }
+
+  async getEvents(runId: string, sinceTick: number): Promise<EventFeed> {
+    const session = this.#requireSession(runId);
+    const { frame } = session;
+    // The demo fixture has no causal history to report, and inventing one
+    // would put fabricated events beside real ones in the same panel. An
+    // empty feed is the honest fixture.
+    return Promise.resolve({
+      protocol_version: PROTOCOL_VERSION,
+      schema_version: SCHEMA_VERSION,
+      kind: "event_feed",
+      run_id: runId,
+      sequence: frame.sequence,
+      status: frame.status,
+      tick: frame.tick,
+      year: frame.year,
+      events: [],
+      oldest_retained_tick: Math.max(0, sinceTick),
+      dropped: false,
     });
   }
 

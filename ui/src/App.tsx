@@ -6,6 +6,7 @@ import {
 } from "./api/client";
 import { DemoSimulationClient } from "./api/demoClient";
 import type { CreateRunRequest } from "./api/contracts";
+import { EventFeedPanel } from "./components/EventFeed";
 import { Icon } from "./components/Icon";
 import { LayerPanel } from "./components/LayerPanel";
 import { MetricStrip } from "./components/MetricStrip";
@@ -19,11 +20,26 @@ import {
 import { useRunLab } from "./hooks/useRunLab";
 import { scenarioName } from "./lib/format";
 
+// A straight channel of constant width reads as a canal, not a sea, and a
+// rectangular coast makes the whole world look like a chart rather than a
+// place. Scenario geometry is rectangles — that is the map format — but
+// several overlapping ones cut headlands and bays into the shoreline, which
+// is enough for the eye to stop seeing a diagram.
+const STRAIT: [number, number, number, number][] = [
+  [23, 0, 10, 30],
+  [20, 2, 3, 9],
+  [21, 21, 3, 7],
+  [19, 12, 2, 5],
+  [33, 5, 3, 6],
+  [32, 17, 4, 9],
+  [36, 25, 2, 5],
+];
+
 const INITIAL_REQUEST: CreateRunRequest = {
   seed: 42,
   config: {
-    width: 48,
-    height: 24,
+    width: 56,
+    height: 30,
     wrap_world: false,
     initial_population: 0,
     ticks_per_year: 12,
@@ -34,8 +50,8 @@ const INITIAL_REQUEST: CreateRunRequest = {
       {
         id: 0,
         name: "Aster",
-        region: [0, 0, 20, 24],
-        population: 80,
+        region: [0, 0, 26, 30],
+        population: 90,
         religion: "sun",
         generosity_mean: 0.75,
         exploration_mean: 0.3,
@@ -48,8 +64,8 @@ const INITIAL_REQUEST: CreateRunRequest = {
       {
         id: 1,
         name: "Boreal",
-        region: [28, 0, 20, 24],
-        population: 80,
+        region: [30, 0, 26, 30],
+        population: 90,
         religion: "stars",
         generosity_mean: 0.35,
         exploration_mean: 0.75,
@@ -60,7 +76,7 @@ const INITIAL_REQUEST: CreateRunRequest = {
         material_multiplier: 1.3,
       },
     ],
-    seas: [[20, 0, 8, 24]],
+    seas: STRAIT,
   },
 };
 
@@ -254,6 +270,7 @@ export default function App() {
             </div>
             <WorldCanvas
               frame={frame}
+              intervalMs={plan.intervalMs}
               layers={layers}
               manifest={manifest}
               onSelectAgent={actions.selectAgent}
@@ -271,7 +288,15 @@ export default function App() {
           />
         </div>
 
-        <Timeline history={state.history} />
+        <div className="lower-grid">
+          <Timeline history={state.history} />
+          <EventFeedPanel
+            dropped={state.eventsDropped}
+            events={state.events}
+            onSelectAgent={actions.selectAgent}
+            year={frame.year}
+          />
+        </div>
       </main>
 
       <footer className="app-footer">

@@ -280,7 +280,9 @@ structure-of-arrays store instead of per-agent graphs. Detailed design and
 extension rules are documented in
 [docs/architecture.md](docs/architecture.md). The explicit limits and mechanics
 of the biology model are in
-[docs/biology-and-brains.md](docs/biology-and-brains.md).
+[docs/biology-and-brains.md](docs/biology-and-brains.md). What is planned next,
+and what each addition has to prove before it lands, is in
+[docs/design-checklist.md](docs/design-checklist.md).
 
 ## Experimental discipline
 

@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from typing import Iterable, List, Mapping, Optional, Tuple
 
 from .config import SimulationConfig
-from .models import Action, ActionKind, Agent, BrainKind
+from .models import (
+    Action,
+    ActionKind,
+    Agent,
+    BrainKind,
+    InfectionStage,
+)
 
 ACTION_KINDS = tuple(ActionKind)
 ACTION_INDEX = {kind: index for index, kind in enumerate(ACTION_KINDS)}
@@ -53,6 +59,40 @@ class BrainState:
         self.last_action_tick = tick
 
 
+def sense(
+    agent: Agent,
+    config: SimulationConfig,
+    neighbour_count: int,
+) -> List[float]:
+    """What the inherited network gets to see.
+
+    Scaled into roughly [-1, 1] so no single sense dominates purely by having
+    larger units than the others. These are the same quantities the agent's
+    own body and immediate surroundings already provide; nothing here is
+    knowledge it could not have.
+    """
+
+    return [
+        1.0,
+        min(2.0, agent.energy / max(1e-9, config.maximum_energy)) - 0.5,
+        min(2.0, agent.health / max(1e-9, config.maximum_health)) - 0.5,
+        min(2.0, agent.inventory / max(1e-9, config.harvest_amount * 4)),
+        min(2.0, agent.material_inventory
+            / max(1e-9, config.material_harvest_amount * 4)),
+        min(2.0, agent.age / max(1e-9, config.maximum_age)) - 0.5,
+        agent.body_condition - 0.5,
+        agent.frailty,
+        min(1.0, neighbour_count / 6.0),
+        1.0 if agent.infection_stage is not InfectionStage.SUSCEPTIBLE
+        else 0.0,
+        1.0 if agent.partner_id is not None else 0.0,
+        1.0 if agent.knows_seafaring else 0.0,
+        1.0 if agent.vessel_durability > 0.0 else 0.0,
+        min(1.0, agent.research_progress
+            / max(1e-9, config.seafaring_discovery_threshold)),
+    ]
+
+
 def choose_action(
     options: List[Tuple[float, Action]],
     agent: Agent,
@@ -64,6 +104,25 @@ def choose_action(
 ) -> Action:
     kind = agent.traits.brain_kind
     scored = list(options)
+    # Materialised once: the social branch reads it too, and a generator
+    # consumed here would silently arrive empty there.
+    attended = list(neighbors)
+
+    if config.neural_brains_enabled and config.neural_output_weight != 0.0:
+        # The network shifts preferences; it never invents an option, hides
+        # one, or overrides the locality and resource checks that resolve it.
+        # A brain can want anything and still be refused by the world.
+        bias = agent.network.evaluate(
+            sense(agent, config, len(attended))
+        )
+        weight = config.neural_output_weight
+        scored = [
+            (
+                utility + weight * bias[ACTION_INDEX[action.kind]],
+                action,
+            )
+            for utility, action in scored
+        ]
 
     if kind is BrainKind.HABITUAL:
         scored = [
@@ -82,7 +141,7 @@ def choose_action(
             1.0,
             config.social_success_memory_years * config.ticks_per_year,
         )
-        for neighbor in neighbors:
+        for neighbor in attended:
             attended_neighbors += 1
             if (
                 not neighbor.brain.last_action

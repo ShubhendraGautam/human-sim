@@ -1,5 +1,6 @@
 import type {
   AgentDetailEnvelope,
+  Biography,
   RunFrame,
   RunManifest,
 } from "../api/contracts";
@@ -11,6 +12,7 @@ import {
   precise,
   titleCase,
 } from "../lib/format";
+import { eventShape } from "../lib/events";
 import { Icon } from "./Icon";
 
 interface PersonInspectorProps {
@@ -55,6 +57,92 @@ function traitValue(
 ): number | null {
   const value = traits[name];
   return typeof value === "number" ? value : null;
+}
+
+/**
+ * What a life amounted to, once it is over.
+ *
+ * Everything shown is read off recorded state. Where the record is partial —
+ * the event log is bounded, so an old person's early years may be gone — the
+ * panel says so rather than presenting a fragment as a whole life.
+ */
+function LifeSummary({
+  life,
+  manifest,
+}: {
+  life: Biography;
+  manifest: RunManifest;
+}) {
+  const span = life.founder
+    ? `Already grown when the run began, died in year ${
+        precise(life.died_year)
+      }`
+    : `Year ${precise(life.born_year)} to ${precise(life.died_year)}`;
+  const childhood =
+    life.childhood_development >= 0.85
+      ? "well fed as a child"
+      : life.childhood_development >= 0.6
+        ? "adequately fed as a child"
+        : "underfed as a child";
+  const moved =
+    life.birth_country === life.died_in_country
+      ? null
+      : `Left ${countryName(manifest.scenario, life.birth_country)} for ${
+          countryName(manifest.scenario, life.died_in_country)
+        }`;
+
+  return (
+    <section className="life-summary" aria-label="Life summary">
+      <header>
+        <span className="eyebrow">Life summary</span>
+        <h3>{span}</h3>
+      </header>
+
+      <p className="life-sentence">
+        Lived {precise(life.age_at_death)} years, {childhood}, and died of{" "}
+        {titleCase(life.cause).toLowerCase()}
+        {life.knew_seafaring ? ", knowing how to cross open water" : ""}.
+        {life.bonded_years === null
+          ? " Never formed a lasting bond."
+          : ` Bonded for ${precise(life.bonded_years)} years.`}
+      </p>
+
+      <div className="life-figures">
+        <span>
+          <small>Children alive</small>
+          <strong>{life.living_children}</strong>
+        </span>
+        <span>
+          <small>Grandchildren alive</small>
+          <strong>{life.living_grandchildren}</strong>
+        </span>
+        <span>
+          <small>Generation</small>
+          <strong>{life.generation}</strong>
+        </span>
+      </div>
+
+      {moved === null ? null : <p className="life-moved">{moved}</p>}
+
+      {life.moments.length === 0 ? null : (
+        <ol className="life-moments">
+          {life.moments.slice(-8).reverse().map((moment, index) => (
+            <li key={`${moment.tick}-${moment.kind}-${index}`}>
+              <span>{precise(moment.year)}</span>
+              {eventShape(moment.kind).label}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {life.moments_complete ? null : (
+        <p className="life-partial">
+          Only recent moments are kept. This person&rsquo;s earlier years are
+          no longer in the engine&rsquo;s log.
+        </p>
+      )}
+    </section>
+  );
 }
 
 function InspectorLoading({ id }: { id: string }) {
@@ -236,6 +324,10 @@ export function PersonInspector({
             is the state this person died in, not a live reading.
           </span>
         </div>
+      )}
+
+      {agent.biography === null ? null : (
+        <LifeSummary life={agent.biography} manifest={manifest} />
       )}
 
       {isStale && death === null ? (

@@ -14,6 +14,7 @@ from .backend import (
 )
 from .contracts import (
     AgentDetail,
+    EventFeed,
     RenderFrame,
     RunManifest,
     RUN_STATUS_FAILED,
@@ -21,6 +22,10 @@ from .contracts import (
     RUN_STATUS_STEPPING,
 )
 
+
+#: A feed is a notification panel, not a transcript. Capping the window keeps
+#: one request from serializing an entire event log.
+MAXIMUM_EVENT_WINDOW = 500
 
 ConfigValue = Optional[Union[SimulationConfig, Mapping[str, object]]]
 ScenarioValue = Optional[Union[Scenario, Mapping[str, object]]]
@@ -169,6 +174,29 @@ class RunSession:
                 agent=source.agent,
             ).to_dict()
 
+    def events(
+        self,
+        since_tick: int = -1,
+        limit: int = 200,
+    ) -> Dict[str, object]:
+        _require_integer(since_tick, "since_tick")
+        _require_positive_integer(limit, "limit")
+        with self._lock:
+            source = self._backend.events(
+                since_tick=since_tick,
+                limit=min(limit, MAXIMUM_EVENT_WINDOW),
+            )
+            return EventFeed(
+                run_id=self.run_id,
+                sequence=self._sequence,
+                status=self._status,
+                tick=source.tick,
+                year=source.year,
+                events=source.events,
+                oldest_retained_tick=source.oldest_retained_tick,
+                dropped=source.dropped,
+            ).to_dict()
+
     def step(
         self,
         ticks: int = 1,
@@ -311,6 +339,17 @@ class RunManager:
     ) -> Dict[str, object]:
         return self._session(run_id).agent_detail(agent_id)
 
+    def events(
+        self,
+        run_id: str,
+        since_tick: int = -1,
+        limit: int = 200,
+    ) -> Dict[str, object]:
+        return self._session(run_id).events(
+            since_tick=since_tick,
+            limit=limit,
+        )
+
     def step(
         self,
         run_id: str,
@@ -386,6 +425,11 @@ def _coerce_agent_id(agent_id: Union[int, str]) -> int:
     if resolved < 0:
         raise ValueError("agent_id must be a nonnegative integer string")
     return resolved
+
+
+def _require_integer(value: int, name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
 
 
 def _require_positive_integer(value: int, name: str) -> None:

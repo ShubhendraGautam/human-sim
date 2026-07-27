@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Dict, Optional, Tuple, TYPE_CHECKING
 
 from .entities import EntityKind
+from .language import Lexicon
+from .neural import Network
 from .health import InfectionStage
 
 if TYPE_CHECKING:
@@ -81,6 +83,9 @@ class Pregnancy:
     reproductive_role: ReproductiveRole
     belief_id: int
     generation: int
+    # Fixed at conception like the genome, so a child inherits the brains its
+    # parents had when it was conceived even if neither lives to see it born.
+    network: "Network"
     conception_tick: int
     due_tick: int
     grandparent_ids: Tuple[int, ...] = ()
@@ -109,6 +114,8 @@ class Agent:
     traits: Traits
     culture: CultureState
     brain: "BrainState"
+    lexicon: "Lexicon"
+    network: "Network"
     reproductive_role: ReproductiveRole
     birth_country_id: int
     belief_id: int

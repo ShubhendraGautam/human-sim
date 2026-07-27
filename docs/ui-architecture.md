@@ -378,6 +378,84 @@ Aggregation is an observer projection and must not affect simulation
 resolution. The UI should expose when it is showing bins rather than
 individuals.
 
+### Events and life summaries
+
+The engine has always written a bounded causal event log; until now nothing
+outside the engine could read it. `GET /runs/{id}/events` serves a window onto
+it, newest first, with `since_tick` for a reader following along.
+
+Two admissions of ignorance are part of the contract rather than polish. A
+feed reports `dropped` when the caller asks for everything after a tick the
+log no longer reaches back to, because silence and a gap must not look the
+same in a notification list. A dead person's biography reports
+`moments_complete: false` when the log no longer reaches back to their birth,
+so a fragment is never presented as a whole life.
+
+Events are fetched separately from frames, and deliberately. Frames are
+latest-wins and may be skipped; a record of what happened should not be, so it
+is requested by tick rather than carried on a frame that might be dropped.
+
+Wording is a translation of the record and never an embellishment of it:
+`communicate` becomes "spoke with", not a conversation topic the model never
+had. Routine events from the same tick are grouped with a count, since forty
+conversations in one tick is a true record and a useless list; landmarks are
+never grouped, so a first landfall cannot be buried under small talk.
+
+A biography contains only what the engine still knows. Two of its figures are
+about survivors rather than the person — how many children and grandchildren
+outlived them — because those are the only marks a life leaves that the model
+can still see afterwards. The person's own social memory returned to the
+relationship store when they died.
+
+### Detail tiers and what a sprite is allowed to mean
+
+How a cell is drawn follows from how many pixels it occupies, not from the
+world's size: density below roughly one pixel per cell, dots to four, plain
+glyphs to eleven, sprites above that. Since a sprite-sized cell is large, few
+of them fit on screen, so sprite cost is bounded by the viewport rather than
+by the map. Below that tier a draw budget samples every nth cell, because zoom
+multiplies fit-to-screen and a large world therefore starts fully visible with
+more cells in front of the viewer than there are pixels to show them in.
+
+Off-screen cells are skipped outright. Everything drawn per cell is derived
+from the coordinates — placement, variation, which plant appears — so scenery
+holds still between frames. Anything that moved from frame to frame would read
+as an event, and on this map an event means something happened.
+
+**A sprite is a reading of a measurable quantity, never a stored type.**
+Greenery is drawn from the food layer and stone from the material layer;
+both are quantities the engine already keeps. Nothing has sprouted or been
+built, so no glyph claims otherwise, and there is deliberately no dwelling
+sprite. When artifacts and flora become real entities the renderer should read
+the entity register instead — the change is which measurement is consulted,
+not a new category in the engine. If a renderer ever needs a field like
+`type: "house"`, a label has been pushed into the model and the design is
+wrong.
+
+Glyphs are vector paths rendered once into an offscreen atlas and blitted with
+`drawImage` — the same hot path a bitmap atlas uses, so a licensed CC0 tile
+set can replace the painting functions without touching a call site. Drawing
+them keeps the bundle free of binary assets, allows a person to be tinted to
+any palette colour without a second image, and renders identically offline.
+
+Four things make small shapes read as objects rather than as symbols, and all
+four are worth preserving in any replacement art: a contact shadow, so things
+stand on the ground instead of floating; one consistent light from the upper
+left, matching the page, giving every glyph a lit face, a shaded face and a
+thin rim; bold silhouettes, because these are drawn at sixteen pixels as often
+as sixty and internal detail is lost long before outline is; and variation in
+species, size and placement, because identical trees on a grid read as
+wallpaper. People are drawn in painter's order — whoever is lower on the map
+is nearer the reader and overlaps whoever is behind them.
+
+Foliage is tinted by the season the engine is actually in. The growth wave's
+phase flips across the equator, so reading that same phase puts one hemisphere
+in autumn while the other is in spring, and summer is centred on peak growth
+rather than guessed at. Deciduous species stand bare in winter and conifers
+take snow. Children are drawn shorter with a larger head, read from the age
+column. None of this is invented: every visual difference on the map traces to
+a number the engine keeps.
+
 Measure serialized frame bytes, projection time, transport latency, paint
 time, and dropped-frame count before changing formats. Binary frames,
 compression, Web Workers, OffscreenCanvas, or WebGL are later optimizations
