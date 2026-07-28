@@ -10,8 +10,13 @@ from typing import Dict, Mapping, Optional, Tuple
 
 
 PROTOCOL_VERSION = 1
-MANIFEST_SCHEMA_VERSION = 1
-FRAME_SCHEMA_VERSION = 1
+#: 2 adds ``playback``: whether the engine is advancing this run on its own,
+#: and at what pace. A client that reattaches to a run it did not start has
+#: no other way to know the world is still moving.
+MANIFEST_SCHEMA_VERSION = 2
+#: 2 adds the ``fauna`` columns. The backend has always produced them; the
+#: frame projection dropped them, so no renderer could draw an animal.
+FRAME_SCHEMA_VERSION = 2
 AGENT_DETAIL_SCHEMA_VERSION = 2
 EVENT_FEED_SCHEMA_VERSION = 1
 
@@ -22,9 +27,16 @@ EVENT_FEED_KIND = "event_feed"
 
 RUN_STATUS_PAUSED = "paused"
 RUN_STATUS_STEPPING = "stepping"
+#: The engine is advancing this run by itself, with nobody asked to ask.
+RUN_STATUS_RUNNING = "running"
 RUN_STATUS_FAILED = "failed"
 RUN_STATUSES = frozenset(
-    (RUN_STATUS_PAUSED, RUN_STATUS_STEPPING, RUN_STATUS_FAILED)
+    (
+        RUN_STATUS_PAUSED,
+        RUN_STATUS_STEPPING,
+        RUN_STATUS_RUNNING,
+        RUN_STATUS_FAILED,
+    )
 )
 
 
@@ -75,6 +87,7 @@ class RunManifest:
     scenario: Mapping[str, object]
     world: Mapping[str, object]
     capabilities: Mapping[str, object]
+    playback: Optional[Mapping[str, object]] = None
 
     def __post_init__(self) -> None:
         _validate_envelope(self.run_id, self.sequence, self.status)
@@ -96,6 +109,11 @@ class RunManifest:
             "scenario": _copy_mapping(self.scenario),
             "world": _copy_mapping(self.world),
             "capabilities": _copy_mapping(self.capabilities),
+            "playback": (
+                _idle_playback()
+                if self.playback is None
+                else _copy_mapping(self.playback)
+            ),
         }
 
 
@@ -110,6 +128,9 @@ class RenderFrame:
     year: float
     metrics: Mapping[str, object]
     agents: Mapping[str, object]
+    # Animals are their own payload rather than more agent columns: they are a
+    # different kind of thing, with none of a person's state.
+    fauna: Optional[Mapping[str, object]] = None
     resources: Optional[Mapping[str, object]] = None
 
     def __post_init__(self) -> None:
@@ -127,6 +148,14 @@ class RenderFrame:
             "year": self.year,
             "metrics": _copy_mapping(self.metrics),
             "agents": _copy_mapping(self.agents),
+            # A run without animals reports an empty herd rather than an
+            # absent field, so a reader never has to tell "none here" apart
+            # from "this service does not know about animals".
+            "fauna": (
+                _empty_fauna()
+                if self.fauna is None
+                else _copy_mapping(self.fauna)
+            ),
         }
         if self.resources is not None:
             result["resources"] = _copy_mapping(self.resources)
@@ -193,6 +222,26 @@ class EventFeed:
             "oldest_retained_tick": self.oldest_retained_tick,
             "dropped": self.dropped,
         }
+
+
+#: The columns a fauna payload always carries, so a reader can index them
+#: without checking which ones arrived.
+FAUNA_COLUMNS = ("id", "x", "y", "energy", "vigilance")
+
+
+def _idle_playback() -> Dict[str, object]:
+    """A run nobody has set moving.
+
+    ``seconds_per_year`` is null rather than zero, because zero is a real
+    pace here — it means *as fast as this machine will go* — and a reader
+    must not confuse "no pace set" with "flat out".
+    """
+
+    return {"playing": False, "seconds_per_year": None}
+
+
+def _empty_fauna() -> Dict[str, object]:
+    return {name: [] for name in FAUNA_COLUMNS}
 
 
 def _validate_envelope(run_id: str, sequence: int, status: str) -> None:

@@ -10,6 +10,7 @@ import { EventFeedPanel } from "./components/EventFeed";
 import { Icon } from "./components/Icon";
 import { LayerPanel } from "./components/LayerPanel";
 import { MetricStrip } from "./components/MetricStrip";
+import { MindTrace } from "./components/MindTrace";
 import { PersonInspector } from "./components/PersonInspector";
 import { RunToolbar } from "./components/RunToolbar";
 import { Timeline } from "./components/Timeline";
@@ -155,7 +156,7 @@ function AppHeader({
 
 export default function App() {
   const client = useMemo(makeClient, []);
-  const { state, actions, plan, ticksPerYear } = useRunLab(
+  const { state, actions, plan, serverDriven, ticksPerYear } = useRunLab(
     client,
     INITIAL_REQUEST,
     import.meta.env.VITE_SIM_RUN_ID,
@@ -211,10 +212,12 @@ export default function App() {
         </div>
       ) : null}
       <RunToolbar
+        enginePlayback={state.enginePlayback}
         exportUrl={exportUrl}
         frame={frame}
         manifest={manifest}
         mutating={state.loadState === "mutating"}
+        onNewRun={() => void actions.newRun()}
         onPause={actions.pause}
         onPlay={actions.play}
         onReset={() => void actions.reset()}
@@ -224,8 +227,16 @@ export default function App() {
         paceIndex={state.paceIndex}
         plan={plan}
         playing={state.playing}
+        serverDriven={serverDriven}
         ticksPerYear={ticksPerYear}
       />
+
+      {state.notice === null ? null : (
+        <div className="inline-notice" role="status">
+          <Icon name="spark" size={15} />
+          {state.notice}
+        </div>
+      )}
 
       {state.error === null ? null : (
         <div className="inline-error" role="alert">
@@ -290,7 +301,14 @@ export default function App() {
         </div>
 
         <div className="lower-grid">
-          <Timeline history={state.history} />
+          <div className="trace-column">
+            <Timeline history={state.history} />
+            <MindTrace
+              frame={frame}
+              manifest={manifest}
+              yearly={state.yearly}
+            />
+          </div>
           <EventFeedPanel
             dropped={state.eventsDropped}
             events={state.events}

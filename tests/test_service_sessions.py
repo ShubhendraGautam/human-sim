@@ -1,3 +1,4 @@
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +14,9 @@ from src.human_sim_service import (
     RunManager,
     RunNotFoundError,
     RunSession,
+    plan_playback,
 )
+from src.human_sim_service.sessions import PlaybackPlan
 from src.simulation import SimulationConfig
 
 
@@ -253,6 +256,120 @@ class ServiceSessionTests(unittest.TestCase):
                     manager.step("strict", ticks=ticks)
         with self.assertRaises(ValueError):
             manager.frame("strict", include_resources=1)
+
+    def test_playback_plan_reads_a_pace_as_batches_and_waits(self) -> None:
+        """A pace is wall-clock time per simulated year, not ticks/second."""
+
+        # Slow enough to see every tick: one at a time, waiting between.
+        self.assertEqual(plan_playback(120.0, 12), PlaybackPlan(1, 10.0))
+        # Too fast for per-tick bookkeeping to be worth it: batch them.
+        fast = plan_playback(1.2, 12)
+        self.assertGreater(fast.ticks, 1)
+        self.assertAlmostEqual(fast.interval, fast.ticks * 0.1)
+        # A batch never hides more than a year of change.
+        self.assertEqual(plan_playback(0.0001, 12).ticks, 12)
+        # No pace, and zero, both mean "as fast as this machine manages".
+        for pace in (None, 0.0):
+            with self.subTest(pace=pace):
+                self.assertEqual(plan_playback(pace, 12).interval, 0.0)
+
+    def test_engine_advances_a_run_with_nobody_asking(self) -> None:
+        """The point of the whole arrangement: no client, still moving."""
+
+        manager = RunManager(id_factory=lambda: "unattended")
+        manager.create(config=SimulationConfig(initial_population=0))
+        self.addCleanup(manager.close)
+
+        manager.set_playback("unattended", True, seconds_per_year=0.0)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if manager.manifest("unattended")["tick"] > 0:
+                break
+            time.sleep(0.02)
+
+        running = manager.manifest("unattended")
+        self.assertGreater(running["tick"], 0)
+        self.assertEqual(running["status"], "running")
+        self.assertTrue(running["playback"]["playing"])
+
+        manager.set_playback("unattended", False)
+        settled = manager.manifest("unattended")["tick"]
+        time.sleep(0.2)
+        stopped = manager.manifest("unattended")
+        self.assertEqual(stopped["tick"], settled)
+        self.assertEqual(stopped["status"], "paused")
+        self.assertFalse(stopped["playback"]["playing"])
+
+    def test_a_driven_run_can_still_be_read(self) -> None:
+        """Observation must not have to wait for the world to stop."""
+
+        manager = RunManager(id_factory=lambda: "readable")
+        manager.create(config=SimulationConfig(initial_population=0))
+        self.addCleanup(manager.close)
+        manager.set_playback("readable", True, seconds_per_year=0.0)
+
+        for _ in range(20):
+            frame = manager.frame("readable")
+            self.assertEqual(frame["kind"], "render_frame")
+            self.assertIn(frame["status"], {"running", "stepping"})
+
+        manager.set_playback("readable", False)
+
+    def test_deleting_a_run_stops_it_driving_itself(self) -> None:
+        manager = RunManager(id_factory=lambda: "doomed")
+        manager.create(config=SimulationConfig(initial_population=0))
+        manager.set_playback("doomed", True, seconds_per_year=0.0)
+
+        manager.delete("doomed")
+
+        self.assertEqual(manager.list_manifests(), [])
+        with self.assertRaises(RunNotFoundError):
+            manager.manifest("doomed")
+        with self.assertRaises(RunNotFoundError):
+            manager.delete("doomed")
+        # Every driver thread it started has actually gone, not just been
+        # forgotten about: a leaked one would keep stepping a dead world.
+        self.assertEqual(
+            [
+                thread
+                for thread in threading.enumerate()
+                if thread.name == "playback-doomed"
+            ],
+            [],
+        )
+
+    def test_a_failed_run_stops_driving_and_refuses_to_restart(self) -> None:
+        factory = FailFirstFactory()
+        manager = RunManager(
+            backend_factory=factory,
+            id_factory=lambda: "broken",
+        )
+        manager.create(config=SimulationConfig(initial_population=0))
+        self.addCleanup(manager.close)
+
+        manager.set_playback("broken", True, seconds_per_year=0.0)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if manager.manifest("broken")["status"] == "failed":
+                break
+            time.sleep(0.02)
+
+        self.assertEqual(manager.manifest("broken")["status"], "failed")
+        self.assertFalse(manager.playback("broken")["playing"])
+        with self.assertRaises(RunFailedError):
+            manager.set_playback("broken", True, seconds_per_year=0.0)
+
+    def test_pace_arguments_are_strict(self) -> None:
+        manager = RunManager(id_factory=lambda: "paced")
+        manager.create(config=SimulationConfig(initial_population=0))
+        self.addCleanup(manager.close)
+
+        with self.assertRaises(ValueError):
+            manager.set_playback("paced", True, seconds_per_year=-1.0)
+        with self.assertRaises(TypeError):
+            manager.set_playback("paced", True, seconds_per_year="fast")
+        with self.assertRaises(ValueError):
+            manager.set_playback("paced", "yes")
 
     def test_list_manifests_is_stably_ordered(self) -> None:
         manager = RunManager()

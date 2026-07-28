@@ -19,6 +19,7 @@ from .contracts import (
     RUN_MANIFEST_KIND,
     RUN_STATUS_FAILED,
     RUN_STATUS_PAUSED,
+    RUN_STATUS_RUNNING,
     RUN_STATUS_STEPPING,
     AgentDetail,
     RenderFrame,
@@ -33,6 +34,7 @@ from .sessions import (
     RunNotFoundError,
     RunServiceError,
     RunSession,
+    plan_playback,
 )
 
 __all__ = [
@@ -52,6 +54,7 @@ __all__ = [
     "RUN_MANIFEST_KIND",
     "RUN_STATUS_FAILED",
     "RUN_STATUS_PAUSED",
+    "RUN_STATUS_RUNNING",
     "RUN_STATUS_STEPPING",
     "RenderFrame",
     "RunDefinition",
@@ -63,5 +66,6 @@ __all__ = [
     "RunSession",
     "SimulationBackend",
     "SimulationBackendFactory",
+    "plan_playback",
     "python_backend_factory",
 ]

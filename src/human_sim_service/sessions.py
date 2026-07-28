@@ -1,6 +1,7 @@
 """Thread-safe run lifecycle independent of any web framework."""
 
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional, Union
@@ -19,6 +20,7 @@ from .contracts import (
     RunManifest,
     RUN_STATUS_FAILED,
     RUN_STATUS_PAUSED,
+    RUN_STATUS_RUNNING,
     RUN_STATUS_STEPPING,
 )
 
@@ -26,6 +28,58 @@ from .contracts import (
 #: A feed is a notification panel, not a transcript. Capping the window keeps
 #: one request from serializing an entire event log.
 MAXIMUM_EVENT_WINDOW = 500
+
+#: Longest the driver holds the run's lock in one go.
+#:
+#: A batch of ticks is stepped without letting go, so a reader asking for a
+#: frame waits for it. Keeping the batch short is what stops an unpaced run
+#: from starving every observer; keeping it above one tick is what stops the
+#: lock churn from costing more than the simulation.
+MAXIMUM_BATCH_SECONDS = 0.25
+
+#: How long the driver may sleep before it notices it was asked to stop.
+MAXIMUM_SLEEP_SECONDS = 0.5
+
+#: How long to wait for a driver to finish the batch it is in the middle of.
+#: Long enough for any sane batch, short enough that a wedged engine cannot
+#: hold a request open indefinitely.
+STOP_TIMEOUT_SECONDS = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackPlan:
+    """How many ticks to take at once, and how long to wait afterwards."""
+
+    ticks: int
+    interval: float
+
+
+def plan_playback(
+    seconds_per_year: Optional[float],
+    ticks_per_year: int,
+    seconds_per_batch: float = MAXIMUM_BATCH_SECONDS,
+) -> PlaybackPlan:
+    """Turn a wall-clock pace into a batch size and a wait.
+
+    The pace a person sets is *how long a simulated year should take to
+    watch*, because that is the quantity they care about — not ticks per
+    second, which means nothing without knowing how long a year is. A pace of
+    zero or None is "as fast as this machine manages", which is what an
+    unattended run left going for days usually wants.
+
+    Batches exist so a fast run does not pay lock and bookkeeping costs per
+    tick, and are bounded so a slow reader is never locked out for long.
+    """
+
+    per_year = max(1, int(ticks_per_year))
+    if seconds_per_year is None or seconds_per_year <= 0:
+        return PlaybackPlan(ticks=per_year, interval=0.0)
+    seconds_per_tick = seconds_per_year / per_year
+    if seconds_per_tick >= seconds_per_batch:
+        return PlaybackPlan(ticks=1, interval=seconds_per_tick)
+    ticks = max(1, min(per_year, round(seconds_per_batch / seconds_per_tick)))
+    return PlaybackPlan(ticks=ticks, interval=ticks * seconds_per_tick)
+
 
 ConfigValue = Optional[Union[SimulationConfig, Mapping[str, object]]]
 ScenarioValue = Optional[Union[Scenario, Mapping[str, object]]]
@@ -102,6 +156,14 @@ class RunSession:
         self._sequence = 0
         self._status = RUN_STATUS_PAUSED
         self._last_error: Optional[str] = None
+        # Playback state is deliberately separate from the run lock: the
+        # driver has to be able to notice a stop request while the lock is
+        # held by whatever is currently reading the run.
+        self._playback_lock = threading.Lock()
+        self._playing = False
+        self._seconds_per_year: Optional[float] = None
+        self._driver: Optional[threading.Thread] = None
+        self._halt = threading.Event()
 
     @property
     def sequence(self) -> int:
@@ -139,7 +201,9 @@ class RunSession:
                     "agent_detail": True,
                     "resource_layers": True,
                     "full_snapshot_export": True,
+                    "playback": True,
                 },
+                playback=self.playback(),
             ).to_dict()
 
     def frame(
@@ -219,7 +283,7 @@ class RunSession:
                 self._last_error = f"{type(error).__name__}: {error}"
                 raise
             self._sequence += 1
-            self._status = RUN_STATUS_PAUSED
+            self._status = self._resting_status()
             self._last_error = None
             return self._frame_locked(include_resources)
 
@@ -240,9 +304,127 @@ class RunSession:
                 raise
             self._backend = replacement
             self._sequence += 1
-            self._status = RUN_STATUS_PAUSED
+            self._status = self._resting_status()
             self._last_error = None
             return self._frame_locked(include_resources)
+
+    def _resting_status(self) -> str:
+        """What this run is between steps: still driving, or waiting."""
+
+        with self._playback_lock:
+            return RUN_STATUS_RUNNING if self._playing else RUN_STATUS_PAUSED
+
+    def playback(self) -> Dict[str, object]:
+        with self._playback_lock:
+            return {
+                "playing": self._playing,
+                "seconds_per_year": self._seconds_per_year,
+            }
+
+    def set_playback(
+        self,
+        playing: bool,
+        seconds_per_year: Optional[float] = None,
+    ) -> Dict[str, object]:
+        """Hand the run to the engine's own clock, or take it back.
+
+        While playing, the run advances without anybody asking it to: the
+        process holding it is the simulation, not the browser looking at it,
+        so closing a window or restarting a UI leaves the world going. What
+        this cannot survive is the service process itself ending — runs live
+        in memory, and there is no rehydration path yet.
+        """
+
+        _require_boolean(playing, "playing")
+        pace = _coerce_pace(seconds_per_year)
+        if playing and self.status == RUN_STATUS_FAILED:
+            raise RunFailedError(
+                f"run {self.run_id!r} failed; reset it before playing"
+            )
+
+        driver: Optional[threading.Thread] = None
+        with self._playback_lock:
+            self._seconds_per_year = pace
+            if playing and not self._playing:
+                self._playing = True
+                self._halt.clear()
+                self._driver = threading.Thread(
+                    target=self._drive,
+                    name=f"playback-{self.run_id}",
+                    daemon=True,
+                )
+                self._driver.start()
+            elif not playing:
+                self._playing = False
+                self._halt.set()
+                driver = self._driver
+                self._driver = None
+
+        if playing:
+            # Say it is running now rather than once the first batch lands.
+            # A reader who asks in between is looking at a run that is being
+            # driven, and "paused" would be the wrong word for it.
+            with self._lock:
+                if self._status != RUN_STATUS_FAILED:
+                    self._status = RUN_STATUS_RUNNING
+        else:
+            # Stopping waits for the batch already in flight, so that when
+            # this returns the run really has stopped moving. Anything else
+            # makes the tick reported here a number that was already stale,
+            # and makes a step by hand land at an unpredictable point.
+            # Joined outside the playback lock, which the driver's own exit
+            # path needs to take.
+            if driver is not None and driver is not threading.current_thread():
+                driver.join(timeout=STOP_TIMEOUT_SECONDS)
+            with self._lock:
+                if self._status == RUN_STATUS_RUNNING:
+                    self._status = RUN_STATUS_PAUSED
+
+        return self.playback()
+
+    def _drive(self) -> None:
+        """Step the run on the engine's own clock until told to stop.
+
+        Every batch is stepped through the same locked path a request uses,
+        so an observer never sees a half-advanced world and a failure is
+        recorded the same way whoever caused it. A failed run stops driving
+        itself: continuing to hammer a broken engine would bury the error
+        under thousands of identical ones.
+        """
+
+        ticks_per_year = max(1, int(self.definition.config.ticks_per_year))
+        while not self._halt.is_set():
+            with self._playback_lock:
+                pace = self._seconds_per_year
+            plan = plan_playback(pace, ticks_per_year)
+            started = time.monotonic()
+            try:
+                self.step(plan.ticks)
+            except Exception:
+                # step() has already recorded the failure and the status.
+                break
+            if self._halt.is_set():
+                break
+            remaining = plan.interval - (time.monotonic() - started)
+            while remaining > 0 and not self._halt.is_set():
+                self._halt.wait(min(MAXIMUM_SLEEP_SECONDS, remaining))
+                remaining = plan.interval - (time.monotonic() - started)
+        with self._playback_lock:
+            self._playing = False
+        with self._lock:
+            if self._status == RUN_STATUS_RUNNING:
+                self._status = RUN_STATUS_PAUSED
+
+    def close(self) -> None:
+        """Stop driving this run and wait for the driver to notice."""
+
+        with self._playback_lock:
+            self._playing = False
+            driver = self._driver
+            self._driver = None
+        self._halt.set()
+        if driver is not None and driver is not threading.current_thread():
+            driver.join(timeout=STOP_TIMEOUT_SECONDS)
 
     def export_snapshot(self) -> Dict[str, object]:
         with self._lock:
@@ -258,6 +440,7 @@ class RunSession:
             year=source.year,
             metrics=source.metrics,
             agents=source.agents,
+            fauna=source.fauna,
             resources=source.resources,
         ).to_dict()
 
@@ -372,6 +555,43 @@ class RunManager:
             include_resources=include_resources,
         )
 
+    def playback(self, run_id: str) -> Dict[str, object]:
+        return self._session(run_id).playback()
+
+    def set_playback(
+        self,
+        run_id: str,
+        playing: bool,
+        seconds_per_year: Optional[float] = None,
+    ) -> Dict[str, object]:
+        return self._session(run_id).set_playback(
+            playing,
+            seconds_per_year=seconds_per_year,
+        )
+
+    def delete(self, run_id: str) -> None:
+        """Forget a run and stop whatever was driving it.
+
+        Runs are held in memory for as long as the service lives, so a
+        reattaching client that keeps making new ones instead of finding the
+        old one leaves a world behind every time. Deleting is how that space
+        is reclaimed; there is no other way back.
+        """
+
+        with self._lock:
+            session = self._sessions.pop(run_id, None)
+        if session is None:
+            raise RunNotFoundError(f"run {run_id!r} does not exist")
+        session.close()
+
+    def close(self) -> None:
+        """Stop every driver, for a service that is shutting down."""
+
+        with self._lock:
+            sessions = tuple(self._sessions.values())
+        for session in sessions:
+            session.close()
+
     def export_snapshot(self, run_id: str) -> Dict[str, object]:
         return self._session(run_id).export_snapshot()
 
@@ -383,6 +603,22 @@ class RunManager:
                 raise RunNotFoundError(
                     f"run {run_id!r} does not exist"
                 ) from None
+
+
+def _coerce_pace(seconds_per_year: object) -> Optional[float]:
+    if seconds_per_year is None:
+        return None
+    if isinstance(seconds_per_year, bool) or not isinstance(
+        seconds_per_year,
+        (int, float),
+    ):
+        raise TypeError("seconds_per_year must be a number or null")
+    value = float(seconds_per_year)
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("seconds_per_year must be finite")
+    if value < 0:
+        raise ValueError("seconds_per_year cannot be negative")
+    return value
 
 
 def _coerce_config(config: ConfigValue) -> SimulationConfig:

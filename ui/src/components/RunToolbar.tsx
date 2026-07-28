@@ -1,4 +1,8 @@
-import type { RunFrame, RunManifest } from "../api/contracts";
+import type {
+  PlaybackState,
+  RunFrame,
+  RunManifest,
+} from "../api/contracts";
 import {
   precise,
   scenarioName,
@@ -7,6 +11,7 @@ import {
 import {
   PACE_LADDER,
   UNPACED,
+  describePace,
   paceStep,
   paceSummary,
   type PlaybackPlan,
@@ -14,6 +19,7 @@ import {
 import { Icon } from "./Icon";
 
 interface RunToolbarProps {
+  enginePlayback: PlaybackState | null;
   exportUrl: string | null;
   frame: RunFrame;
   manifest: RunManifest;
@@ -21,7 +27,10 @@ interface RunToolbarProps {
   paceIndex: number;
   plan: PlaybackPlan;
   playing: boolean;
+  /** The engine is making time pass, not this tab. */
+  serverDriven: boolean;
   ticksPerYear: number;
+  onNewRun: () => void;
   onPause: () => void;
   onPlay: () => void;
   onReset: () => void;
@@ -34,6 +43,7 @@ interface RunToolbarProps {
 const PROGRESS_VISIBLE_MS = 1_000;
 
 export function RunToolbar({
+  enginePlayback,
   exportUrl,
   frame,
   manifest,
@@ -41,7 +51,9 @@ export function RunToolbar({
   paceIndex,
   plan,
   playing,
+  serverDriven,
   ticksPerYear,
+  onNewRun,
   onPause,
   onPlay,
   onReset,
@@ -50,8 +62,14 @@ export function RunToolbar({
   onStepYear,
 }: RunToolbarProps) {
   const pace = paceStep(paceIndex);
-  const showProgress = playing && plan.intervalMs >= PROGRESS_VISIBLE_MS;
+  const showProgress =
+    playing && !serverDriven && plan.intervalMs >= PROGRESS_VISIBLE_MS;
   const controlDisabled = mutating || frame.status === "failed";
+  // Stepping by hand while the engine is stepping on its own would interleave
+  // two clocks on one world, and the tick you asked for would land somewhere
+  // unpredictable in the run.
+  const handStepping = controlDisabled || !manifest.capabilities.step ||
+    (serverDriven && playing);
   return (
     <section className="run-toolbar" aria-label="Run controls">
       <div className="scenario-control">
@@ -77,6 +95,21 @@ export function RunToolbar({
 
       <div className="transport-controls">
         <button
+          aria-label="Start a separate new run"
+          className="tool-button"
+          disabled={mutating}
+          onClick={onNewRun}
+          title={
+            serverDriven
+              ? "Create a second world. This one keeps going without you."
+              : "Create a second world from the same scenario"
+          }
+          type="button"
+        >
+          <Icon name="seed" size={16} />
+          <span>New</span>
+        </button>
+        <button
           aria-label="Reset run"
           className="tool-button"
           disabled={controlDisabled || !manifest.capabilities.reset}
@@ -90,9 +123,13 @@ export function RunToolbar({
         <button
           aria-label="Advance one tick"
           className="tool-button"
-          disabled={controlDisabled || !manifest.capabilities.step}
+          disabled={handStepping}
           onClick={onStep}
-          title="Advance exactly one causal tick"
+          title={
+            serverDriven && playing
+              ? "Pause the engine first to step by hand"
+              : "Advance exactly one causal tick"
+          }
           type="button"
         >
           <Icon name="step" size={16} />
@@ -101,19 +138,36 @@ export function RunToolbar({
         <button
           aria-label="Advance one simulated year"
           className="tool-button"
-          disabled={controlDisabled || !manifest.capabilities.step}
+          disabled={handStepping}
           onClick={onStepYear}
-          title={`Advance one simulated year (${ticksPerYear} ticks)`}
+          title={
+            serverDriven && playing
+              ? "Pause the engine first to step by hand"
+              : `Advance one simulated year (${ticksPerYear} ticks)`
+          }
           type="button"
         >
           <Icon name="step" size={16} />
           <span>Year</span>
         </button>
         <button
-          aria-label={playing ? "Pause local playback" : "Start local playback"}
+          aria-label={
+            playing
+              ? serverDriven
+                ? "Stop the engine advancing this run"
+                : "Pause local playback"
+              : serverDriven
+                ? "Let the engine advance this run on its own"
+                : "Start local playback"
+          }
           className="primary-control"
           disabled={controlDisabled || !manifest.capabilities.step}
           onClick={playing ? onPause : onPlay}
+          title={
+            serverDriven
+              ? "The engine keeps this run going after the tab is closed"
+              : "This browser advances the run; closing the tab stops it"
+          }
           type="button"
         >
           <Icon name={playing ? "pause" : "play"} size={16} />
@@ -142,7 +196,14 @@ export function RunToolbar({
               ? "Unpaced"
               : `${pace.label} / year`}
           </strong>
-          <small>{paceSummary(paceIndex, ticksPerYear)}</small>
+          <small>
+            {/* The engine may hold a pace no rung of this ladder matches —
+                one set from a terminal, say — and the reader is owed the
+                real figure rather than the nearest rung to it. */}
+            {serverDriven && enginePlayback !== null
+              ? `Engine: ${describePace(enginePlayback.seconds_per_year)}`
+              : paceSummary(paceIndex, ticksPerYear)}
+          </small>
         </span>
       </div>
 
@@ -170,12 +231,18 @@ export function RunToolbar({
 
       <div
         className={`run-status ${playing ? "is-running" : ""}`}
-        title="Service state and local playback state"
+        title={
+          serverDriven
+            ? "Where the run is being advanced: in the engine, not here"
+            : "Service state and local playback state"
+        }
       >
         <span />
         {mutating
           ? "Stepping"
-          : statusLabel(frame.status, playing)}
+          : serverDriven && playing
+            ? "Running in engine"
+            : statusLabel(frame.status, playing)}
       </div>
 
       {showProgress ? (

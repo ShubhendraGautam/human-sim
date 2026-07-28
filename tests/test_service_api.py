@@ -1,3 +1,4 @@
+import time
 import unittest
 
 try:
@@ -93,6 +94,87 @@ class ServiceApiTests(unittest.TestCase):
         self.assertEqual(
             exported.json()["snapshot_kind"],
             "visualization",
+        )
+
+    def test_a_run_can_be_left_advancing_and_then_found_again(self) -> None:
+        """The unattended case: start it, walk away, reattach later."""
+
+        self.client.post("/api/v1/runs", json=self.create_payload)
+
+        started = self.client.post(
+            "/api/v1/runs/test-run/playback",
+            json={"playing": True, "seconds_per_year": 0},
+        )
+        self.assertEqual(started.status_code, 200)
+        self.assertTrue(started.json()["playback"]["playing"])
+        self.assertEqual(started.json()["status"], "running")
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if self.client.get("/api/v1/runs/test-run/frame").json()["tick"]:
+                break
+            time.sleep(0.02)
+
+        # A client that arrives later is told the world is already moving,
+        # which is the one thing it cannot work out for itself.
+        rejoined = self.client.get("/api/v1/runs/test-run/manifest").json()
+        self.assertTrue(rejoined["capabilities"]["playback"])
+        self.assertTrue(rejoined["playback"]["playing"])
+        self.assertEqual(rejoined["playback"]["seconds_per_year"], 0)
+        self.assertGreater(rejoined["tick"], 0)
+
+        # Pausing without naming a pace keeps the pace for next time.
+        paused = self.client.post(
+            "/api/v1/runs/test-run/playback",
+            json={"playing": False},
+        )
+        self.assertEqual(paused.status_code, 200)
+        self.assertFalse(paused.json()["playback"]["playing"])
+        self.assertEqual(paused.json()["playback"]["seconds_per_year"], 0)
+        settled = paused.json()["tick"]
+        time.sleep(0.2)
+        self.assertEqual(
+            self.client.get("/api/v1/runs/test-run/frame").json()["tick"],
+            settled,
+        )
+
+        read_back = self.client.get("/api/v1/runs/test-run/playback")
+        self.assertEqual(read_back.status_code, 200)
+        self.assertFalse(read_back.json()["playback"]["playing"])
+
+        deleted = self.client.delete("/api/v1/runs/test-run")
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/v1/runs/test-run/manifest").status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete("/api/v1/runs/test-run").status_code,
+            404,
+        )
+
+    def test_playback_requests_are_strict(self) -> None:
+        self.client.post("/api/v1/runs", json=self.create_payload)
+
+        for payload in (
+            {"playing": True, "seconds_per_year": -1},
+            {"playing": "yes"},
+            {"playing": True, "unknown": 1},
+            {},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post(
+                    "/api/v1/runs/test-run/playback",
+                    json=payload,
+                )
+                self.assertEqual(response.status_code, 422)
+
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/runs/absent/playback",
+                json={"playing": False},
+            ).status_code,
+            404,
         )
 
     def test_validation_and_missing_resources_return_structured_errors(

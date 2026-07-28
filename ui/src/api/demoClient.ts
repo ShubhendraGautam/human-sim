@@ -214,7 +214,7 @@ function buildManifest(seed: number, sequence: number): RunManifest {
   const world = buildWorld();
   const manifest: RunManifest = {
     protocol_version: PROTOCOL_VERSION,
-    schema_version: SCHEMA_VERSION,
+    schema_version: SCHEMA_VERSION.run_manifest,
     kind: "run_manifest",
     run_id: `demo-${seed}`,
     sequence,
@@ -274,7 +274,11 @@ function buildManifest(seed: number, sequence: number): RunManifest {
       agent_detail: true,
       resource_layers: true,
       full_snapshot_export: false,
+      // Nothing is running behind this fixture, so playback is the browser's
+      // own timer and stops when the tab does.
+      playback: false,
     },
+    playback: { playing: false, seconds_per_year: null },
   };
   assertWorldManifest(manifest);
   return manifest;
@@ -512,7 +516,7 @@ function buildFrame(
   const fauna = buildDemoFauna(manifest, tick);
   const frame: RunFrame = {
     protocol_version: PROTOCOL_VERSION,
-    schema_version: SCHEMA_VERSION,
+    schema_version: SCHEMA_VERSION.render_frame,
     kind: "render_frame",
     run_id: manifest.run_id,
     sequence,
@@ -778,6 +782,18 @@ export class DemoSimulationClient implements SimulationClient {
     return Promise.resolve(this.#frame);
   }
 
+  async observe(runId: string): Promise<RunFrame> {
+    return Promise.resolve(this.#requireSession(runId).frame);
+  }
+
+  async setPlayback(): Promise<never> {
+    // The fixture has no engine behind it to keep going, and its manifest
+    // says so. Reaching here means a caller ignored the capability.
+    return Promise.reject(
+      new Error("The synthetic fixture cannot run without the interface."),
+    );
+  }
+
   async reset(runId: string): Promise<RunSession> {
     const { manifest } = this.#requireSession(runId);
     return this.createRun({
@@ -798,7 +814,7 @@ export class DemoSimulationClient implements SimulationClient {
     }
     return Promise.resolve({
       protocol_version: PROTOCOL_VERSION,
-      schema_version: SCHEMA_VERSION,
+      schema_version: SCHEMA_VERSION.agent_detail,
       kind: "agent_detail",
       run_id: runId,
       sequence: session.frame.sequence,
@@ -816,7 +832,7 @@ export class DemoSimulationClient implements SimulationClient {
     // empty feed is the honest fixture.
     return Promise.resolve({
       protocol_version: PROTOCOL_VERSION,
-      schema_version: SCHEMA_VERSION,
+      schema_version: SCHEMA_VERSION.event_feed,
       kind: "event_feed",
       run_id: runId,
       sequence: frame.sequence,

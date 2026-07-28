@@ -108,6 +108,62 @@ export interface PlaybackPlan {
   intervalMs: number;
 }
 
+/**
+ * The ladder step closest to a pace somebody else chose.
+ *
+ * A run may have been set going from a command line at any pace at all —
+ * one hour a year, say, which is not a rung on this ladder. Attaching to it
+ * has to show *its* pace rather than this tab's default, because the
+ * alternative is a slider that silently re-paces a world it just found.
+ * Returns null when there is no pace to adopt.
+ */
+export function paceIndexFor(
+  secondsPerYear: number | null | undefined,
+): number | null {
+  if (secondsPerYear === null || secondsPerYear === undefined) {
+    return null;
+  }
+  if (secondsPerYear <= 0) {
+    return PACE_LADDER.findIndex((step) => step.secondsPerYear === UNPACED);
+  }
+  let closest = 0;
+  let distance = Number.POSITIVE_INFINITY;
+  PACE_LADDER.forEach((step, index) => {
+    if (step.secondsPerYear === UNPACED) {
+      return;
+    }
+    // Compared as ratios: 2s and 5s are further apart to a viewer than
+    // 1200s and 1203s are, even though the absolute gaps say otherwise.
+    const gap = Math.abs(
+      Math.log(step.secondsPerYear / secondsPerYear),
+    );
+    if (gap < distance) {
+      distance = gap;
+      closest = index;
+    }
+  });
+  return closest;
+}
+
+/** A pace in words, for a figure that came from somewhere else. */
+export function describePace(
+  secondsPerYear: number | null | undefined,
+): string {
+  if (secondsPerYear === null || secondsPerYear === undefined) {
+    return "no pace set";
+  }
+  if (secondsPerYear <= 0) {
+    return "as fast as possible";
+  }
+  if (secondsPerYear < 90) {
+    return `${Number(secondsPerYear.toFixed(1))}s / year`;
+  }
+  if (secondsPerYear < 3600) {
+    return `${Number((secondsPerYear / 60).toFixed(1))} min / year`;
+  }
+  return `${Number((secondsPerYear / 3600).toFixed(1))} h / year`;
+}
+
 export function paceStep(index: number): PaceStep {
   const clamped = Math.min(
     PACE_LADDER.length - 1,

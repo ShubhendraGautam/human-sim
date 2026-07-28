@@ -5,6 +5,7 @@ import {
   type AgentDetailEnvelope,
   type CreateRunRequest,
   type EventFeed,
+  type PlaybackEnvelope,
   type RunFrame,
   type RunManifest,
   type RunSession,
@@ -17,6 +18,19 @@ export interface SimulationClient {
   createRun(request: CreateRunRequest): Promise<RunSession>;
   openRun(runId: string): Promise<RunSession>;
   step(runId: string, request: StepRunRequest): Promise<RunFrame>;
+  /** Read the current frame without advancing anything. */
+  observe(runId: string): Promise<RunFrame>;
+  /**
+   * Hand the run to the engine's own clock, or take it back.
+   *
+   * Only meaningful where the manifest reports the `playback` capability.
+   * A client without it drives the run itself and stops when it stops.
+   */
+  setPlayback(
+    runId: string,
+    playing: boolean,
+    secondsPerYear: number | null,
+  ): Promise<PlaybackEnvelope>;
   reset(runId: string): Promise<RunSession>;
   getAgentDetail(
     runId: string,
@@ -72,6 +86,35 @@ export class ApiSimulationClient implements SimulationClient {
     );
     assertFrameColumns(frame);
     return frame;
+  }
+
+  async observe(runId: string): Promise<RunFrame> {
+    const frame = await this.#request<RunFrame>(
+      `/api/v1/runs/${encodeURIComponent(runId)}/frame?include_resources=true`,
+    );
+    assertFrameColumns(frame);
+    return frame;
+  }
+
+  async setPlayback(
+    runId: string,
+    playing: boolean,
+    secondsPerYear: number | null,
+  ): Promise<PlaybackEnvelope> {
+    return this.#request<PlaybackEnvelope>(
+      `/api/v1/runs/${encodeURIComponent(runId)}/playback`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          playing,
+          // Omitted rather than null, so pausing leaves the run's pace as
+          // whoever set it left it.
+          ...(secondsPerYear === null
+            ? {}
+            : { seconds_per_year: secondsPerYear }),
+        }),
+      },
+    );
   }
 
   async reset(runId: string): Promise<RunSession> {

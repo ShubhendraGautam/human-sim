@@ -793,6 +793,21 @@ small {
   font-size: 12px;
 }
 
+/* Not a failure: the lab is working, on a different world than the reader
+   expected. Gold rather than red, because nothing is broken. */
+.inline-notice {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  margin: 12px 22px 0;
+  padding: 11px 15px;
+  border: 1px solid rgba(240, 185, 104, 0.24);
+  border-radius: var(--radius);
+  background: rgba(240, 185, 104, 0.08);
+  color: var(--gold-bright);
+  font-size: 12px;
+}
+
 /* --- Layout ------------------------------------------------------------- */
 
 .run-lab {
@@ -1809,16 +1824,107 @@ small {
   border-radius: 999px;
 }
 
+/* The swatch shows both what a series is drawn in and how it is drawn, so
+   the legend still identifies a line for a reader who cannot separate the
+   hues. */
 .legend-population i {
   background: var(--gold);
 }
 
 .legend-food i {
-  background: var(--green);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--green) 0 4px,
+    transparent 4px 6.5px
+  );
 }
 
 .legend-health i {
-  background: var(--red);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--red) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
+/* --- Minds trace -------------------------------------------------------- */
+
+.trace-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mind-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.mind-readout strong {
+  color: var(--violet);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.mind-readout small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.mind-sentence {
+  margin: 0;
+  padding: 0 16px 2px;
+  color: var(--text-soft);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.mind-sentence strong {
+  color: var(--text);
+}
+
+.mind-area {
+  fill: url("#mind-area");
+}
+
+.mind-line {
+  fill: none;
+  stroke: var(--violet);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px rgba(187, 158, 227, 0.3));
+}
+
+.mind-dot {
+  fill: var(--violet);
+}
+
+.chart-crosshair {
+  stroke: rgba(206, 226, 218, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.mind-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 16px 13px;
+  border-top: 1px solid var(--line);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.mind-note code {
+  color: var(--text-soft);
+  font-size: 10px;
 }
 
 .timeline-chart {
@@ -1853,13 +1959,18 @@ small {
   filter: drop-shadow(0 0 5px rgba(240, 185, 104, 0.35));
 }
 
+/* Dash patterns carry the same identity the colours do. Gold against green
+   is the one pair on this chart a protanope cannot separate, so the lines
+   are told apart by shape as well: solid, dashed, dotted. */
 .food-line {
   stroke: var(--green);
+  stroke-dasharray: 7 4;
   opacity: 0.85;
 }
 
 .health-line {
   stroke: var(--red);
+  stroke-dasharray: 1.5 4;
   opacity: 0.8;
 }
 

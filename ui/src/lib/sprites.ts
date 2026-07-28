@@ -801,6 +801,128 @@ export function personSprite(
   return canvas;
 }
 
+const faunaCache = new Map<string, HTMLCanvasElement>();
+
+/**
+ * A grazing animal.
+ *
+ * Drawn side-on and low to the ground so it cannot be mistaken for a person
+ * at a glance: the whole difference between the two silhouettes is upright
+ * versus horizontal, and that reads even at eight pixels. Head down is the
+ * default because grazing is what the engine has animals doing most of the
+ * time; a raised head is what vigilance looks like, and vigilance is a column
+ * the frame actually carries, so the two poses are a reading of it rather
+ * than decoration.
+ */
+export function faunaSprite(
+  pixelRatio: number,
+  alert: boolean,
+): HTMLCanvasElement | null {
+  const key = `${alert ? "a" : "g"}@${pixelRatio}`;
+  const cached = faunaCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const size = Math.round(TILE * pixelRatio);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    return null;
+  }
+
+  const hide = "#a8926d";
+  const lit = shade(hide, 0.22);
+  const dim = shade(hide, -0.34);
+  const ink = "rgba(6, 12, 10, 0.8)";
+  const footY = 0.86;
+
+  shadow(context, size, 0.5, footY + 0.015, 0.28);
+
+  // Legs first, so the body sits over them.
+  context.strokeStyle = dim;
+  context.lineCap = "round";
+  context.lineWidth = Math.max(1.4, size * 0.045);
+  for (const x of [0.32, 0.4, 0.62, 0.7]) {
+    context.beginPath();
+    context.moveTo(x * size, 0.6 * size);
+    context.lineTo((x + (x < 0.5 ? -0.015 : 0.015)) * size, footY * size);
+    context.stroke();
+  }
+
+  const body = new Path2D();
+  body.moveTo(0.24 * size, 0.56 * size);
+  body.quadraticCurveTo(0.2 * size, 0.4 * size, 0.36 * size, 0.36 * size);
+  body.quadraticCurveTo(0.5 * size, 0.32 * size, 0.68 * size, 0.37 * size);
+  body.quadraticCurveTo(0.8 * size, 0.42 * size, 0.76 * size, 0.58 * size);
+  body.quadraticCurveTo(0.5 * size, 0.66 * size, 0.24 * size, 0.56 * size);
+  body.closePath();
+  context.fillStyle = hide;
+  context.fill(body);
+  context.save();
+  context.clip(body);
+  context.fillStyle = dim;
+  context.fillRect(0, 0.5 * size, size, size);
+  context.fillStyle = lit;
+  context.fillRect(0, 0, size, 0.42 * size);
+  context.restore();
+  context.strokeStyle = ink;
+  context.lineWidth = Math.max(1, size * 0.026);
+  context.lineJoin = "round";
+  context.stroke(body);
+
+  // Neck and head. Grazing puts the muzzle on the ground; alert lifts it
+  // clear of the shoulder, which is the pose that stands out in a herd.
+  const neckTopY = alert ? 0.2 : 0.56;
+  const headX = alert ? 0.2 : 0.17;
+  context.strokeStyle = hide;
+  context.lineWidth = Math.max(1.6, size * 0.09);
+  context.beginPath();
+  context.moveTo(0.3 * size, 0.42 * size);
+  context.quadraticCurveTo(
+    (alert ? 0.24 : 0.2) * size,
+    (alert ? 0.3 : 0.52) * size,
+    headX * size,
+    neckTopY * size,
+  );
+  context.stroke();
+
+  context.fillStyle = lit;
+  context.beginPath();
+  context.ellipse(
+    headX * size,
+    neckTopY * size,
+    size * 0.075,
+    size * 0.055,
+    alert ? -0.5 : 0.35,
+    0,
+    Math.PI * 2,
+  );
+  context.fill();
+  context.strokeStyle = ink;
+  context.lineWidth = Math.max(1, size * 0.022);
+  context.stroke();
+
+  // Ears, then a tail: two small notches that finish the silhouette.
+  context.strokeStyle = dim;
+  context.lineWidth = Math.max(1, size * 0.03);
+  context.beginPath();
+  context.moveTo((headX + 0.045) * size, (neckTopY - 0.03) * size);
+  context.lineTo((headX + 0.08) * size, (neckTopY - 0.09) * size);
+  context.moveTo(0.76 * size, 0.42 * size);
+  context.quadraticCurveTo(
+    0.84 * size,
+    0.46 * size,
+    0.82 * size,
+    0.56 * size,
+  );
+  context.stroke();
+
+  faunaCache.set(key, canvas);
+  return canvas;
+}
+
 const vesselCache = new Map<number, HTMLCanvasElement>();
 
 /** A hull under whoever is standing on open water in it. */

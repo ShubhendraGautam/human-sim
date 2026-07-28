@@ -4,7 +4,8 @@ Install ``requirements-api.txt`` to use this module.  The simulation package
 itself remains dependency-free.
 """
 
-from typing import Annotated, Any, Dict, Optional
+from contextlib import asynccontextmanager
+from typing import Annotated, Any, AsyncIterator, Dict, Optional
 
 from fastapi import FastAPI, Query, status
 from fastapi.responses import JSONResponse
@@ -46,6 +47,24 @@ class StepRunRequest(BaseModel):
     include_resources: bool = False
 
 
+class PlaybackRequest(BaseModel):
+    """Hand a run to the engine's own clock, or take it back.
+
+    ``seconds_per_year`` is the wall-clock time one simulated year should
+    take. Zero means as fast as the machine manages, which is the usual
+    setting for a run left going unattended. Omitting it keeps whatever pace
+    the run already had.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Strict, like the other transport inputs: a client that sends "yes"
+    # for playing is a client with a bug, and quietly reading it as true
+    # would set a world going on the strength of a coercion.
+    playing: Annotated[bool, Field(strict=True)]
+    seconds_per_year: Optional[Annotated[float, Field(ge=0)]] = None
+
+
 class ResetRunRequest(BaseModel):
     """Recreate a run from its original immutable definition."""
 
@@ -67,6 +86,15 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
     """Build an app with an injectable run registry for tests."""
 
     runs = manager or RunManager()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        # Driver threads are daemons and would not hold the process open,
+        # but leaving them stepping through interpreter teardown produces
+        # failures that describe nothing.
+        runs.close()
+
     app = FastAPI(
         title="Human-Sim service",
         summary="Versioned control and observation API for Human-Sim runs.",
@@ -74,6 +102,7 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
         docs_url="/api/docs",
         redoc_url="/api/redoc",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
     app.state.run_manager = runs
 
@@ -208,6 +237,34 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
             include_resources=request.include_resources,
         )
 
+    @app.get("/api/v1/runs/{run_id}/playback")
+    def playback(run_id: str) -> Dict[str, object]:
+        return _playback_response(runs, run_id, runs.playback(run_id))
+
+    @app.post("/api/v1/runs/{run_id}/playback")
+    def set_playback(
+        run_id: str,
+        request: PlaybackRequest,
+    ) -> Dict[str, object]:
+        # An omitted pace keeps the one the run already had, so pausing and
+        # resuming does not silently reset a carefully chosen pace.
+        pace = (
+            request.seconds_per_year
+            if request.seconds_per_year is not None
+            else runs.playback(run_id)["seconds_per_year"]
+        )
+        state = runs.set_playback(
+            run_id,
+            request.playing,
+            seconds_per_year=pace,
+        )
+        return _playback_response(runs, run_id, state)
+
+    @app.delete("/api/v1/runs/{run_id}", status_code=status.HTTP_200_OK)
+    def delete_run(run_id: str) -> Dict[str, object]:
+        runs.delete(run_id)
+        return {"protocol_version": PROTOCOL_VERSION, "run_id": run_id}
+
     @app.get("/api/v1/runs/{run_id}/agents/{agent_id}")
     def agent_detail(
         run_id: str,
@@ -228,6 +285,25 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
         return runs.export_snapshot(run_id)
 
     return app
+
+
+def _playback_response(
+    runs: RunManager,
+    run_id: str,
+    state: Dict[str, object],
+) -> Dict[str, object]:
+    """Playback state beside enough of the run to act on it."""
+
+    manifest = runs.manifest(run_id)
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "run_id": run_id,
+        "status": manifest["status"],
+        "tick": manifest["tick"],
+        "year": manifest["year"],
+        "population": manifest["population"],
+        "playback": state,
+    }
 
 
 def _error_response(status_code: int, message: str) -> JSONResponse:

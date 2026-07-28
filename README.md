@@ -128,12 +128,60 @@ together, running a headless simulation, and running the checks CI runs.
 ```
 
 Other commands: `restart`, `sim [args]`, `scenario [file] [args]`,
-`test [py|ui|all]`, `lint`, `check`, `build`, `clean`. Run `./run.sh help` for
-the full list. `start` accepts `--api-only`, `--ui-only`, and `--logs`. Ports
-come from `API_PORT` and `UI_PORT`; pid files and logs live in `.run/`.
+`lab <subcommand>`, `test [py|ui|all]`, `lint`, `check`, `build`, `clean`. Run
+`./run.sh help` for the full list. `start` and `stop` accept `--api-only` and
+`--ui-only`; `start` also takes `--logs`. Ports come from `API_PORT` and
+`UI_PORT`; pid files and logs live in `.run/`.
 
 Everything the script does is also available as the direct commands below, and
 the simulation core itself needs nothing but Python.
+
+## Runs that outlive the thing that started them
+
+There are two ways to run this simulation, and they answer different
+questions.
+
+`sims.simple_sim` runs a world *inside* the command that starts it: you say
+how many ticks, it runs them, prints the result, and the world is gone. That
+is the right tool for a reproducible experiment with a known length.
+
+For a world meant to be left going — days of evolution, checked on now and
+then — the engine service holds the run and advances it on its own clock.
+Nothing needs to stay attached to it. No browser, no terminal:
+
+```bash
+./run.sh start --api-only
+./run.sh lab start --scenario scenarios/two_islands.json --seed 5 --pace fast
+#   run       c12fb6dceded4500b43c907ba4bf8035
+#   observe   http://127.0.0.1:5173/?run=c12fb6dceded4500b43c907ba4bf8035
+
+./run.sh lab list                  # every run the service holds
+./run.sh lab watch <id> --every 60 # a metrics line a minute; Ctrl-C is safe
+./run.sh lab pause <id>            # stop advancing; state is kept
+./run.sh lab snapshot <id> --out world.json
+./run.sh lab delete <id> [<id>...] # stop them and release the memory
+./run.sh lab delete --all          # every idle run; --running takes those too
+```
+
+Runs accumulate: the service holds every one it is given until it is told
+otherwise, and each keeps its whole population in memory. `lab list` is how
+you notice, and `lab delete` is the only way to reclaim the space short of
+stopping the service.
+
+`--pace` is how much wall-clock time one simulated year should take: `fast`
+(as quickly as the machine manages), or a number with an `s`/`m`/`h`/`d`
+suffix — `--pace 1h` for a run you intend to watch over a week.
+
+Opening the Run Lab attaches to the run rather than starting a new one: the
+URL above names it explicitly, and an ordinary reload reattaches to whatever
+this browser was last watching. Run and Pause then control the engine, so
+closing the tab leaves the world going. The **New** button is how you ask for
+a second world on purpose.
+
+One limit to plan around: **runs live in the service's memory.** Stopping the
+API — `./run.sh stop`, `restart`, a crash, a reboot — ends every run it held,
+and there is no way to load one back. `./run.sh stop --ui-only` is the safe
+half. Snapshots are an export for analysis, not a resumable save.
 
 ## Run
 
@@ -271,9 +319,12 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Add `?demo=1` only when an explicitly labelled
-synthetic interface preview is desired. The normal UI connects to the real
-engine service.
+Open `http://127.0.0.1:5173`. Add `?run=<id>` to attach to a particular run;
+without it the lab reattaches to the run this browser last watched, and only
+creates a world when there is none to attach to. Add `?demo=1` only when an
+explicitly labelled synthetic interface preview is desired — that fixture has
+no engine behind it, so its playback stops with the tab. The normal UI
+connects to the real engine service.
 
 See [ui/README.md](ui/README.md) for frontend commands and
 [docs/ui-architecture.md](docs/ui-architecture.md) for the service contracts,

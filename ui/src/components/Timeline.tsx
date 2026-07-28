@@ -76,17 +76,23 @@ export function Timeline({ history }: TimelineProps) {
           <span className="eyebrow">Local observation buffer</span>
           <h2>Run trace</h2>
         </div>
+        {/*
+          Each swatch carries the series colour and its dash pattern. The
+          colour alone was doing all the work of telling three lines apart,
+          which is exactly the reading a red-green colourblind viewer cannot
+          make — gold against green is the closest pair on the chart.
+        */}
         <div className="timeline-legend" aria-label="Chart legend">
-          <span>
-            <i className="legend-population" />
+          <span className="legend-population">
+            <i />
             Population
           </span>
-          <span>
-            <i className="legend-food" />
+          <span className="legend-food">
+            <i />
             Food
           </span>
-          <span>
-            <i className="legend-health" />
+          <span className="legend-health">
+            <i />
             Health
           </span>
         </div>

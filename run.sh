@@ -248,9 +248,21 @@ cmd_start() {
 }
 
 cmd_stop() {
+  local want_api=1 want_ui=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --api-only) want_ui=0 ;;
+      --ui-only)  want_api=0 ;;
+      *) die "stop takes: --api-only | --ui-only" ;;
+    esac
+    shift
+  done
   info "Stopping services"
-  stop_pid "UI" "$UI_PID"
-  stop_pid "API" "$API_PID"
+  [ "$want_ui" -eq 1 ] && stop_pid "UI" "$UI_PID"
+  # Stopping the API ends every run it holds: runs live in its memory and
+  # there is no rehydration path. Closing the UI is the safe half of this.
+  [ "$want_api" -eq 1 ] && stop_pid "API" "$API_PID"
+  return 0
 }
 
 cmd_restart() {
@@ -306,6 +318,14 @@ cmd_scenario() {
   shift || true
   [ -f "$scenario" ] || die "no scenario file at $scenario"
   "$(core_python)" -m sims.simple_sim --scenario "$scenario" "$@"
+}
+
+# Runs held by the service, which keep going after this command returns.
+cmd_lab() {
+  API_HOST="$API_HOST" API_PORT="$API_PORT" \
+    HUMAN_SIM_API="${HUMAN_SIM_API:-http://$API_HOST:$API_PORT}" \
+    HUMAN_SIM_UI="${HUMAN_SIM_UI:-http://127.0.0.1:$UI_PORT}" \
+    "$(core_python)" -m sims.lab "$@"
 }
 
 cmd_test() {
@@ -379,15 +399,28 @@ ${BOLD}Services${OFF}
       --api-only          only the engine service
       --ui-only           only the web UI
       --logs, -f          follow logs after starting
-  stop                  Stop both services
+  stop [opts]           Stop services (default both)
+      --ui-only           leave the engine running, and its runs with it
+      --api-only          stop the engine; every run it holds is lost
   restart [opts]        Stop, then start again (same options as start)
   status                Show what is running
   logs [api|ui|all]     Follow service logs (Ctrl-C leaves them running)
 
 ${BOLD}Simulation${OFF}
-  sim [args...]         Headless run: python -m sims.simple_sim
+  sim [args...]         Headless run inside this command: sims.simple_sim
                         e.g. ./run.sh sim --population 1000 --ticks 240 --seed 42
   scenario [file] [..]  Run a scenario (default scenarios/two_islands.json)
+
+${BOLD}Long-lived runs${OFF}   (held by the engine service, outlive this shell)
+  lab start [opts]      Create a run and set the engine advancing it
+                        e.g. ./run.sh lab start --scenario scenarios/two_islands.json --pace 1h
+  lab list              Every run the service is holding
+  lab watch <id>        Print metrics periodically; Ctrl-C leaves it running
+  lab play|pause <id>   Start or stop the engine advancing a run
+  lab snapshot <id>     Export full state as JSON (--out FILE)
+  lab delete <id>...    Stop runs and release their memory
+      --all               every idle run (add --running to take those too)
+  Attach a browser to any of them at ${DIM}http://127.0.0.1:${UI_PORT}/?run=<id>${OFF}
 
 ${BOLD}Checks${OFF}
   test [py|ui|all]      Run the test suites
@@ -420,6 +453,7 @@ case "$command" in
   logs|log)          cmd_logs "$@" ;;
   sim|run)           cmd_sim "$@" ;;
   scenario)          cmd_scenario "$@" ;;
+  lab)               cmd_lab "$@" ;;
   test)              cmd_test "$@" ;;
   lint)              cmd_lint "$@" ;;
   check)             cmd_check "$@" ;;

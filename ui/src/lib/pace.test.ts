@@ -5,7 +5,9 @@ import {
   DEFAULT_PACE_INDEX,
   PACE_LADDER,
   UNPACED,
+  describePace,
   formatDuration,
+  paceIndexFor,
   paceStep,
   paceSummary,
   planPlayback,
@@ -88,5 +90,25 @@ describe("playback pacing", () => {
     expect(formatDuration(50)).toBe("50 s");
     expect(formatDuration(150)).toBe("2.5 min");
     expect(formatDuration(1800)).toBe("30 min");
+  });
+
+  it("adopts the pace a run was already set to", () => {
+    // A run started from a terminal may sit between rungs; the slider takes
+    // the closest one rather than snapping the world to a default.
+    expect(paceIndexFor(600)).toBe(DEFAULT_PACE_INDEX);
+    expect(paceStep(paceIndexFor(3600)!).secondsPerYear).toBe(1800);
+    expect(paceStep(paceIndexFor(3)!).secondsPerYear).toBe(2);
+    expect(paceStep(paceIndexFor(0)!).secondsPerYear).toBe(UNPACED);
+    // Nothing to adopt is not the same as a pace of zero.
+    expect(paceIndexFor(null)).toBeNull();
+    expect(paceIndexFor(undefined)).toBeNull();
+  });
+
+  it("states a pace the ladder cannot represent", () => {
+    expect(describePace(3600)).toBe("1 h / year");
+    expect(describePace(150)).toBe("2.5 min / year");
+    expect(describePace(2)).toBe("2s / year");
+    expect(describePace(0)).toBe("as fast as possible");
+    expect(describePace(null)).toBe("no pace set");
   });
 });

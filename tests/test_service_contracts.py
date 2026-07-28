@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.human_sim_service.contracts import _copy_mapping
+from src.human_sim_service.contracts import RenderFrame, _copy_mapping
 from src.human_sim_service import (
     AGENT_DETAIL_SCHEMA_VERSION,
     FRAME_SCHEMA_VERSION,
@@ -131,6 +131,43 @@ class ServiceContractTests(unittest.TestCase):
         for value in frame["agents"]["health_fraction"]:
             self.assertGreaterEqual(value, 0.0)
             self.assertLessEqual(value, 1.0)
+
+    def test_frame_carries_the_herd_a_renderer_has_to_draw(self) -> None:
+        """Animals reach the wire, or nothing can draw one.
+
+        The backend has always built these columns; the frame projection
+        dropped them on the way out, so every renderer saw a world with no
+        animals in it while the engine was simulating a herd.
+        """
+
+        frame = self.manager.frame("contract-run")
+
+        self.assertEqual(
+            set(frame["fauna"]),
+            {"id", "x", "y", "energy", "vigilance"},
+        )
+        herd = len(frame["fauna"]["id"])
+        self.assertEqual(herd, frame["metrics"]["fauna_population"])
+        for values in frame["fauna"].values():
+            self.assertEqual(len(values), herd)
+
+    def test_frame_without_a_herd_reports_an_empty_one(self) -> None:
+        """Absent animals are an answer, not a missing key."""
+
+        frame = RenderFrame(
+            run_id="contract-run",
+            sequence=1,
+            status="paused",
+            tick=0,
+            year=0.0,
+            metrics={},
+            agents={"id": []},
+        ).to_dict()
+
+        self.assertEqual(
+            frame["fauna"],
+            {"id": [], "x": [], "y": [], "energy": [], "vigilance": []},
+        )
 
     def test_resource_layers_are_opt_in(self) -> None:
         frame = self.manager.frame(

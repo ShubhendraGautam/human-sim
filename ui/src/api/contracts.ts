@@ -7,7 +7,40 @@
  */
 
 export const PROTOCOL_VERSION = 1 as const;
-export const SCHEMA_VERSION = 1 as const;
+
+/**
+ * Message schemas are versioned per kind, because they change per kind.
+ *
+ * A single shared constant said every message must be the same version as
+ * every other, which is not something the service ever promised: adding a
+ * biography to `agent_detail` moved that schema to 2 while frames stayed
+ * where they were, and the check then rejected every person the inspector
+ * asked for.
+ *
+ * Each kind lists the versions this renderer can actually read, newest
+ * first. A version is only listed once the code handles what it added or
+ * removed — an unknown version is still refused, because guessing at a
+ * payload is how a reader silently misreports the model.
+ */
+export const READABLE_SCHEMA_VERSIONS = {
+  /** 2 carries `playback`: whether the engine is advancing this run itself. */
+  run_manifest: [2, 1],
+  /** 2 carries the fauna columns; 1 has no animals in it. */
+  render_frame: [2, 1],
+  /** 2 carries the biography of the dead; 1 has living agents only. */
+  agent_detail: [2, 1],
+  event_feed: [1],
+} as const satisfies Record<string, readonly number[]>;
+
+export type MessageKind = keyof typeof READABLE_SCHEMA_VERSIONS;
+
+/** What this renderer emits when it fabricates a message of its own. */
+export const SCHEMA_VERSION = {
+  run_manifest: 2,
+  render_frame: 2,
+  agent_detail: 2,
+  event_feed: 1,
+} as const satisfies Record<MessageKind, number>;
 
 export type RunStatus =
   | "paused"
@@ -29,7 +62,7 @@ export type InfectionStage =
 
 export interface ProtocolEnvelope {
   protocol_version: typeof PROTOCOL_VERSION;
-  schema_version: typeof SCHEMA_VERSION;
+  schema_version: number;
   kind: string;
   run_id: string;
   sequence: number;
@@ -93,6 +126,32 @@ export interface RunCapabilities {
   agent_detail: boolean;
   resource_layers: boolean;
   full_snapshot_export: boolean;
+  /**
+   * Whether the engine can advance this run on its own clock. When it can,
+   * Run and Pause hand the run to the service rather than driving it from a
+   * browser timer, and the world keeps going after the tab is closed.
+   */
+  playback?: boolean;
+}
+
+export interface PlaybackState {
+  playing: boolean;
+  /**
+   * Wall-clock seconds one simulated year takes. Zero means as fast as the
+   * machine manages; null means no pace has been set.
+   */
+  seconds_per_year: number | null;
+}
+
+/** The answer to asking about, or changing, a run's playback. */
+export interface PlaybackEnvelope {
+  protocol_version: typeof PROTOCOL_VERSION;
+  run_id: string;
+  status: RunStatus;
+  tick: number;
+  year: number;
+  population: number;
+  playback: PlaybackState;
 }
 
 export interface RunManifest extends ProtocolEnvelope {
@@ -106,6 +165,8 @@ export interface RunManifest extends ProtocolEnvelope {
   scenario: ScenarioContract;
   world: WorldManifest;
   capabilities: RunCapabilities;
+  /** Absent from a schema 1 manifest, which had no engine-side playback. */
+  playback?: PlaybackState;
 }
 
 /**
@@ -242,7 +303,8 @@ export interface RunFrame extends ProtocolEnvelope {
   year: number;
   metrics: SimulationMetrics;
   agents: AgentColumns;
-  fauna: FaunaColumns;
+  /** Absent from a schema 1 frame, which had no animals in it. */
+  fauna?: FaunaColumns;
   resources?: ResourceLayers;
 }
 
@@ -425,6 +487,18 @@ export interface TimelinePoint {
   infectious: number;
   births: number;
   deaths: number;
+  /**
+   * Mean absolute weight of the inherited network, averaged over everyone
+   * alive. It is what the engine measures of a brain, and the only honest
+   * answer to "have minds got stronger": a population whose figure climbs is
+   * one where having an opinion started paying off. It is not an IQ, and
+   * nothing in the engine reads it.
+   */
+  mind: number;
+  /** Mean weight of what people have learned within their own lifetimes. */
+  plasticity: number;
+  /** Spread of inherited policies; zero means the population are clones. */
+  policyDiversity: number;
 }
 
 export function toTimelinePoint(frame: RunFrame): TimelinePoint {
@@ -438,6 +512,9 @@ export function toTimelinePoint(frame: RunFrame): TimelinePoint {
     infectious: metrics.disease_population.infectious ?? 0,
     births: metrics.births,
     deaths: metrics.deaths,
+    mind: metrics.mean_network_magnitude,
+    plasticity: metrics.mean_plasticity,
+    policyDiversity: metrics.policy_diversity,
   };
 }
 
@@ -449,6 +526,16 @@ export function assertFrameColumns(frame: RunFrame): void {
       throw new Error(
         `Invalid render frame: agents.${name} has ${values.length} values; expected ${expected}.`,
       );
+    }
+  }
+  if (frame.fauna !== undefined) {
+    const herd = frame.fauna.id.length;
+    for (const [name, values] of Object.entries(frame.fauna)) {
+      if (values.length !== herd) {
+        throw new Error(
+          `Invalid render frame: fauna.${name} has ${values.length} values; expected ${herd}.`,
+        );
+      }
     }
   }
 }
@@ -485,16 +572,17 @@ export function assertAgentDetailEnvelope(
 
 function assertEnvelope(
   envelope: ProtocolEnvelope,
-  expectedKind: string,
+  expectedKind: MessageKind,
 ): void {
   if (envelope.protocol_version !== PROTOCOL_VERSION) {
     throw new Error(
       `Unsupported protocol version ${String(envelope.protocol_version)}; expected ${PROTOCOL_VERSION}.`,
     );
   }
-  if (envelope.schema_version !== SCHEMA_VERSION) {
+  const readable: readonly number[] = READABLE_SCHEMA_VERSIONS[expectedKind];
+  if (!readable.includes(envelope.schema_version)) {
     throw new Error(
-      `Unsupported ${expectedKind} schema version ${String(envelope.schema_version)}; expected ${SCHEMA_VERSION}.`,
+      `Unsupported ${expectedKind} schema version ${String(envelope.schema_version)}; this interface reads ${readable.join(" or ")}.`,
     );
   }
   if (envelope.kind !== expectedKind) {

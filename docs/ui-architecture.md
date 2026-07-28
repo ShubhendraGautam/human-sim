@@ -119,13 +119,58 @@ an older run or an older sequence. A detail response carries its source tick,
 so the inspector can mark it stale rather than silently combining states from
 different ticks.
 
+## Who owns the clock
+
+A run may be advanced by whoever is watching it, or by the engine itself.
+Both are supported, and which one is in force is a property of the run rather
+than of the client: `capabilities.playback` says the engine can hold the
+clock, and `playback.playing` says whether it currently is.
+
+Engine-driven is the mode that matters for anything long. A run set going
+through `POST /runs/{id}/playback` advances in a driver thread inside the
+service, paced by wall-clock seconds per simulated year, and keeps advancing
+with no client attached at all — which is the only arrangement in which a
+world can be left evolving for days and looked at afterwards. A client then
+*reads* frames rather than requesting steps, so two browsers can watch one
+world and closing either changes nothing.
+
+Client-driven playback remains for backends that cannot hold a clock, such as
+the synthetic fixture. There the browser timer is what makes time pass, and
+the world stops when the tab does.
+
+Three rules keep the two honest:
+
+- **The engine's account wins.** A client shows Pause for a run it finds
+  already running, and adopts that run's pace instead of imposing its own —
+  attaching to a world must not change it.
+- **Stopping is synchronous.** `playing: false` returns once the batch in
+  flight has finished, so the tick it reports is the tick the run is on and a
+  subsequent manual step lands where the caller expects.
+- **One clock at a time.** Stepping by hand is refused while the engine is
+  driving, rather than interleaving two sources of time on one world.
+
+Runs are held in memory for the life of the service process. There is no
+rehydration path: a restart ends every run it held, and `GET /snapshot` is an
+export for analysis rather than a resumable save. Reattaching therefore
+survives a UI restart but not an engine restart, and a client that cannot
+find the run it was watching must say so rather than quietly opening a
+different world.
+
 ## Versioned UI contracts
 
 The UI protocol has its own `protocol_version` and projection
 `schema_version`. It also reports the engine's model, snapshot, configuration,
 and genome versions. These numbers answer different compatibility questions
 and must not be collapsed into one value. Manifest, frame, and agent-detail
-schemas are versioned independently even though all three begin at version 1.
+schemas are versioned independently, and they have already diverged: the
+manifest and event feed are at 1, the frame is at 2 (it carries the herd), and
+agent detail is at 2 (it carries a biography for the dead).
+
+A client therefore states which versions of each kind it can read, not one
+version for everything. Collapsing them into a single constant makes an
+ordinary additive change to one message reject every message of another kind —
+which is how a UI ends up reporting that every person it asks about no longer
+exists.
 
 All envelopes have this common identity:
 
@@ -177,6 +222,7 @@ interface RunFrame extends ProtocolEnvelope {
   year: number;
   metrics: SimulationMetrics;
   agents: AgentColumns;
+  /** Always present from frame schema 2; absent in schema 1. */
   fauna: FaunaColumns;
   resources?: {
     food: number[];
@@ -319,9 +365,18 @@ The Run Lab desktop layout is:
 | Disease     |                                      |                     |
 | Actions     |                                      |                     |
 +-------------+--------------------------------------+---------------------+
-| bounded timeline: population / resources / health / disease / events     |
+| bounded timeline: population / resources / health / disease | events     |
+| minds: inherited network weight, one point a year           |            |
 +--------------------------------------------------------------------------+
 ```
+
+Two time scales sit below the world, because the questions asked of a run have
+two scales. The bounded timeline is a frame buffer a few minutes deep and
+answers what is happening now. Anything that moves over generations — how
+strong inherited brains have become, whether policies are still diverse — is
+invisible in that window, so it is sampled once per simulated year and kept
+for the whole session. Each chart carries one scale; a second measure of a
+different magnitude gets its own chart rather than a second axis.
 
 On narrower screens, layers and person detail become drawers while the world
 remains primary. Keyboard and pointer interaction must both support layer

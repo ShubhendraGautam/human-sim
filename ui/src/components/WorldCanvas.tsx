@@ -30,6 +30,7 @@ import {
 } from "../lib/lod";
 import {
   drawScenery,
+  faunaSprite,
   personSprite,
   sceneryAtlas,
   vesselSprite,
@@ -244,6 +245,9 @@ export function WorldCanvas({
   const pointerRef = useRef<PointerOrigin | null>(null);
   const paintRef = useRef<number | null>(null);
   const motionRef = useRef<Map<string, Motion>>(new Map());
+  // Animals walk on the same clock as people. Keeping their tracks in their
+  // own map means an animal id can never collide with a person's.
+  const faunaMotionRef = useRef<Map<number, Motion>>(new Map());
   const motionStartRef = useRef(0);
   const motionDurationRef = useRef(MINIMUM_TRAVEL_MS);
 
@@ -251,6 +255,7 @@ export function WorldCanvas({
   // Capturing it before the new positions are drawn is what makes the step
   // continuous instead of a jump back to the previous cell.
   const sequence = frame.sequence;
+  const herd = frame.fauna;
   useMemo(() => {
     const previous = motionRef.current;
     const next = new Map<string, Motion>();
@@ -287,13 +292,39 @@ export function WorldCanvas({
       });
     }
     motionRef.current = next;
+
+    const previousHerd = faunaMotionRef.current;
+    const nextHerd = new Map<number, Motion>();
+    for (let index = 0; index < (herd?.id.length ?? 0); index += 1) {
+      const id = herd?.id[index];
+      if (id === undefined) {
+        continue;
+      }
+      const toX = herd?.x[index] ?? 0;
+      const toY = herd?.y[index] ?? 0;
+      const was = previousHerd.get(id);
+      nextHerd.set(id, {
+        fromX:
+          was === undefined
+            ? toX
+            : was.fromX + (was.toX - was.fromX) * progress,
+        fromY:
+          was === undefined
+            ? toY
+            : was.fromY + (was.toY - was.fromY) * progress,
+        toX,
+        toY,
+      });
+    }
+    faunaMotionRef.current = nextHerd;
+
     motionStartRef.current = performance.now();
     motionDurationRef.current = Math.min(
       MAXIMUM_TRAVEL_MS,
       Math.max(MINIMUM_TRAVEL_MS, intervalMs || MINIMUM_TRAVEL_MS),
     );
     return next;
-  }, [sequence, frame.agents, intervalMs]);
+  }, [sequence, frame.agents, herd, intervalMs]);
 
   const [size, setSize] = useState({ width: 800, height: 520 });
   // Open close enough that a person is a person and a tree is a tree.
@@ -631,29 +662,71 @@ export function WorldCanvas({
       // Animals are drawn under people: a person standing in a herd should
       // still be the thing you can see and click.
       if (layers.fauna && frame.fauna !== undefined) {
-        const herd = frame.fauna;
+        const animals = frame.fauna;
+        const faunaMotions = faunaMotionRef.current;
+        const faunaAt = (index: number): [number, number] => {
+          const id = animals.id[index];
+          const motion = id === undefined ? undefined : faunaMotions.get(id);
+          if (motion === undefined) {
+            return [animals.x[index] ?? 0, animals.y[index] ?? 0];
+          }
+          return [
+            motion.fromX + (motion.toX - motion.fromX) * travel,
+            motion.fromY + (motion.toY - motion.fromY) * travel,
+          ];
+        };
         if (detail === "aggregate") {
           const patch = Math.max(1, Math.ceil(cellScale));
           context.fillStyle = "rgba(150, 190, 128, 0.45)";
-          for (let index = 0; index < herd.id.length; index += 1) {
+          for (let index = 0; index < animals.id.length; index += 1) {
             context.fillRect(
-              projection.originX + (herd.x[index] ?? 0) * cellScale,
-              projection.originY + (herd.y[index] ?? 0) * cellScale,
+              projection.originX + (animals.x[index] ?? 0) * cellScale,
+              projection.originY + (animals.y[index] ?? 0) * cellScale,
               patch,
               patch,
             );
           }
+        } else if (detail === "sprite") {
+          // Big enough to be seen as an animal, smaller than the people it
+          // shares a cell with: a herd should read as scenery you can count,
+          // not compete with the person standing in it.
+          const beast = clamp(cellScale * 0.72, 11, 40);
+          for (let index = 0; index < animals.id.length; index += 1) {
+            const [x, y] = faunaAt(index);
+            if (
+              x < bounds.startX || x >= bounds.endX ||
+              y < bounds.startY || y >= bounds.endY
+            ) {
+              continue;
+            }
+            const sprite = faunaSprite(
+              pixelRatio,
+              (animals.vigilance[index] ?? 0) > 0.6,
+            );
+            if (sprite === null) {
+              continue;
+            }
+            context.drawImage(
+              sprite,
+              projection.originX + (x + 0.5) * cellScale - beast / 2,
+              projection.originY + (y + 0.5) * cellScale - beast * 0.62,
+              beast,
+              beast,
+            );
+          }
         } else {
-          const radius = clamp(cellScale * 0.13, 0.9, 2.2);
-          context.fillStyle = "rgba(150, 190, 128, 0.8)";
+          // Too small for a body, but a dot that reads as an animal rather
+          // than as a smaller person: wider than tall, and in hide brown
+          // rather than any colour a person is ever drawn in.
+          const width = clamp(cellScale * 0.3, 1.4, 4.4);
+          context.fillStyle = "rgba(176, 150, 108, 0.92)";
           context.beginPath();
-          for (let index = 0; index < herd.id.length; index += 1) {
-            const x =
-              projection.originX + ((herd.x[index] ?? 0) + 0.5) * cellScale;
-            const y =
-              projection.originY + ((herd.y[index] ?? 0) + 0.5) * cellScale;
-            context.moveTo(x + radius, y);
-            context.arc(x, y, radius, 0, Math.PI * 2);
+          for (let index = 0; index < animals.id.length; index += 1) {
+            const [worldX, worldY] = faunaAt(index);
+            const x = projection.originX + (worldX + 0.5) * cellScale;
+            const y = projection.originY + (worldY + 0.5) * cellScale;
+            context.moveTo(x + width, y);
+            context.ellipse(x, y, width, width * 0.62, 0, 0, Math.PI * 2);
           }
           context.fill();
         }
