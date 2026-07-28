@@ -177,6 +177,7 @@ interface RunFrame extends ProtocolEnvelope {
   year: number;
   metrics: SimulationMetrics;
   agents: AgentColumns;
+  fauna: FaunaColumns;
   resources?: {
     food: number[];
     materials: number[];
@@ -187,9 +188,16 @@ interface RunFrame extends ProtocolEnvelope {
 `AgentColumns` is a structure of arrays. Every column has the same length as
 `id`; columns include render-relevant values such as position, birth country,
 belief, age, normalized energy and health, body condition, frailty, brain
-kind, last action, infection stage, and seafaring/vessel state. IDs are strings
-at the service boundary so a future native or partitioned backend is not
-restricted by JavaScript's safe-integer range.
+kind, last action, infection stage, learned techniques, and seafaring/vessel
+state. IDs are strings at the service boundary so a future native or
+partitioned backend is not restricted by JavaScript's safe-integer range.
+
+`FaunaColumns` is the same arrangement for animals, and deliberately separate
+rather than more agent columns. Animals are a different kind of thing, they
+turn over far faster than people, and a client that only draws people should
+not have to receive a herd to discover that. It carries position, energy and
+vigilance only — an animal has no identity worth inspecting the way a person
+does, so there is no per-animal detail endpoint.
 
 Dynamic food and material layers are optional. The client requests them only
 while a resource layer is visible or at a lower sampling cadence. Metrics are

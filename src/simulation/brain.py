@@ -20,11 +20,27 @@ ACTION_INDEX = {kind: index for index, kind in enumerate(ACTION_KINDS)}
 
 @dataclass(slots=True)
 class BrainState:
-    """Bounded lifetime learning state; never inherited by children."""
+    """Bounded lifetime learning state; never inherited by children.
+
+    This is where the Weismann barrier for minds lives. What a person is born
+    with sits in ``Agent.network`` and is what their children recombine; what
+    they work out for themselves sits here and dies with them. Keeping the
+    learned overlay in this object rather than on the network is what stops
+    lifetime experience quietly becoming heritable — a child would otherwise
+    inherit its parent's habits along with its parent's disposition, which is
+    Lamarck by accident rather than by decision.
+    """
 
     preferences: array = field(
         default_factory=lambda: array("f", [0.0]) * len(ACTION_KINDS)
     )
+    #: Learned adjustment to the network's output layer, action by unit.
+    #: Allocated on first use, because most brains never learn anything and
+    #: an always-present matrix would cost every agent for the few that do.
+    plastic: Optional[List[List[float]]] = None
+    #: The hidden state that produced the last decision, so that the outcome
+    #: can be credited to the units that actually caused it.
+    last_activations: Optional[List[float]] = None
     last_action: str = ""
     last_success: float = 0.0
     last_target_id: int = -1
@@ -32,6 +48,59 @@ class BrainState:
 
     def preference(self, action: Action) -> float:
         return self.preferences[ACTION_INDEX[action.kind]]
+
+    def adapt(
+        self,
+        action: Action,
+        signal: float,
+        rate: float,
+        limit: float,
+        units: int,
+    ) -> bool:
+        """Move the output layer toward what just worked.
+
+        Three factors: how surprising the outcome was, how active each hidden
+        unit was when the choice was made, and a rate. Nothing here knows
+        which action *ought* to be preferred — the same rule runs for eating,
+        hunting and resting, and the only thing that separates them is what
+        the world paid out. That is what keeps this learning rather than
+        instruction.
+
+        Returns whether anything actually changed, so the caller can charge
+        for it only when it did.
+        """
+
+        activations = self.last_activations
+        if activations is None or rate <= 0.0 or signal == 0.0:
+            return False
+        if self.plastic is None:
+            self.plastic = [
+                [0.0] * units for _ in range(len(ACTION_KINDS))
+            ]
+        row = self.plastic[ACTION_INDEX[action.kind]]
+        changed = False
+        for unit in range(min(units, len(activations))):
+            delta = rate * signal * activations[unit]
+            if delta == 0.0:
+                continue
+            updated = row[unit] + delta
+            row[unit] = min(limit, max(-limit, updated))
+            changed = True
+        return changed
+
+    @property
+    def plasticity_magnitude(self) -> float:
+        """How much this person has learned, as a mean absolute weight."""
+
+        if self.plastic is None:
+            return 0.0
+        total = 0.0
+        count = 0
+        for row in self.plastic:
+            for weight in row:
+                total += abs(weight)
+                count += 1
+        return total / count if count else 0.0
 
     def learn(
         self,
@@ -59,10 +128,37 @@ class BrainState:
         self.last_action_tick = tick
 
 
+@dataclass(frozen=True, slots=True)
+class Surroundings:
+    """What the world looks like from where one person is standing.
+
+    Every field is something the deciding code already computes for its own
+    purposes, so passing them through costs nothing extra and the brain sees
+    exactly what the utility rules see. Keeping it a value rather than
+    letting `sense` reach into the world is what stops a brain quietly
+    acquiring a query nobody budgeted for.
+    """
+
+    food_here: float = 0.0
+    food_nearby: float = 0.0
+    material_here: float = 0.0
+    season: float = 0.0
+    animal_near: bool = False
+    on_coast: bool = False
+    remembered_place: float = 0.0
+
+
+#: What a brain perceives when nobody has told it anything about the world.
+#: Used for the handful of callers that score an action outside a full
+#: decision; a blind reading is better than a wrong one.
+NOWHERE = Surroundings()
+
+
 def sense(
     agent: Agent,
     config: SimulationConfig,
     neighbour_count: int,
+    surroundings: Surroundings = NOWHERE,
 ) -> List[float]:
     """What the inherited network gets to see.
 
@@ -89,7 +185,14 @@ def sense(
         1.0 if agent.knows_seafaring else 0.0,
         1.0 if agent.vessel_durability > 0.0 else 0.0,
         min(1.0, agent.research_progress
-            / max(1e-9, config.seafaring_discovery_threshold)),
+            / max(1e-9, config.discovery_threshold)),
+        surroundings.food_here,
+        surroundings.food_nearby,
+        surroundings.material_here,
+        surroundings.season,
+        1.0 if surroundings.animal_near else 0.0,
+        1.0 if surroundings.on_coast else 0.0,
+        surroundings.remembered_place,
     ]
 
 
@@ -101,6 +204,7 @@ def choose_action(
     config: SimulationConfig,
     social_weights: Optional[Mapping[int, float]] = None,
     current_tick: int = 0,
+    surroundings: Surroundings = NOWHERE,
 ) -> Action:
     kind = agent.traits.brain_kind
     scored = list(options)
@@ -112,9 +216,12 @@ def choose_action(
         # The network shifts preferences; it never invents an option, hides
         # one, or overrides the locality and resource checks that resolve it.
         # A brain can want anything and still be refused by the world.
-        bias = agent.network.evaluate(
-            sense(agent, config, len(attended))
+        bias, activations = agent.network.respond(
+            sense(agent, config, len(attended), surroundings),
+            agent.brain.plastic,
         )
+        # Kept so the outcome can be credited to the state that caused it.
+        agent.brain.last_activations = activations
         weight = config.neural_output_weight
         scored = [
             (

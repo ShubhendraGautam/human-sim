@@ -10,6 +10,7 @@ import {
   type BrainKind,
   type CreateRunRequest,
   type EventFeed,
+  type FaunaColumns,
   type InfectionStage,
   type ResourceLayers,
   type RunFrame,
@@ -359,6 +360,26 @@ function buildMetrics(tick: number, agents: AgentColumns): SimulationMetrics {
     mean_social_connections: 2.3 + Math.sin(tick * 0.04) * 0.2,
     mean_trust: 0.61 + Math.sin(tick * 0.015) * 0.03,
     isolated_population: 18,
+    mean_vocabulary: 3.4 + Math.sin(tick * 0.02) * 0.6,
+    language_agreement: 0.72 + Math.sin(tick * 0.015) * 0.08,
+    language_global_agreement: 0.24 + Math.sin(tick * 0.011) * 0.05,
+    distinct_words: 60 + Math.floor(tick / 12),
+    speaking_population: agents.id.length,
+    coinages: 40 + Math.floor(tick / 9),
+    fauna_population: 900 + Math.round(Math.sin(tick * 0.03) * 380),
+    fauna_mean_energy: 13 + Math.sin(tick * 0.03 + 1) * 4,
+    fauna_mean_vigilance: 0.5,
+    fauna_mean_age: 4.2,
+    fauna_born: 12,
+    fauna_died: 11,
+    fauna_grazed: 180,
+    hunts: Math.floor(tick / 4),
+    hunt_kills: Math.floor(tick / 9),
+    meat_gained: 6.5,
+    mean_network_magnitude: 0.1,
+    mean_plasticity: 0.04 + Math.sin(tick * 0.02) * 0.01,
+    policy_diversity: 0.12,
+    mean_remembered_places: 3.1,
     age_bands: {
       juvenile: agents.age.filter((age) => age < 16).length,
       adult: agents.age.filter((age) => age >= 16 && age < 55).length,
@@ -418,6 +439,7 @@ function buildFrame(
     last_action_success: [],
     infection_stage: [],
     knows_seafaring: [],
+    known_techniques: [],
     vessel_durability: [],
   };
 
@@ -465,6 +487,7 @@ function buildFrame(
     agents.last_action_success.push((tick + index) % 9 === 0 ? 0.25 : 1);
     agents.infection_stage.push(infectionStage);
     agents.knows_seafaring.push(seed.knowsSeafaring);
+    agents.known_techniques.push(seed.knowsSeafaring ? 1 : 0);
     agents.vessel_durability.push(
       seed.knowsSeafaring && index % 3 === 0
         ? clamp(0.86 - (tick % 180) / 240)
@@ -486,6 +509,7 @@ function buildFrame(
       Math.max(0, capacity * (0.82 - tick * 0.00016 - hash(19, index) * 0.08)),
     ),
   };
+  const fauna = buildDemoFauna(manifest, tick);
   const frame: RunFrame = {
     protocol_version: PROTOCOL_VERSION,
     schema_version: SCHEMA_VERSION,
@@ -497,10 +521,43 @@ function buildFrame(
     year: tick / 12,
     metrics: buildMetrics(tick, agents),
     agents,
+    fauna,
     ...(includeResources ? { resources } : {}),
   };
   assertFrameColumns(frame);
   return frame;
+}
+
+/** A synthetic herd for the labelled interface preview. */
+function buildDemoFauna(
+  manifest: RunManifest,
+  tick: number,
+): FaunaColumns {
+  const width = manifest.world.width;
+  const height = manifest.world.height;
+  const count = 220;
+  const fauna: FaunaColumns = {
+    id: [],
+    x: [],
+    y: [],
+    energy: [],
+    vigilance: [],
+  };
+  for (let index = 0; index < count; index += 1) {
+    const drift = Math.round(Math.sin(tick * 0.05 + index) * 2);
+    fauna.id.push(1_000_000 + index);
+    fauna.x.push(
+      Math.min(width - 1, Math.max(0,
+        Math.floor(hash(index + 7, manifest.seed) * width) + drift)),
+    );
+    fauna.y.push(
+      Math.min(height - 1, Math.max(0,
+        Math.floor(hash(index + 23, manifest.seed) * height) - drift)),
+    );
+    fauna.energy.push(6 + hash(index + 41, tick) * 16);
+    fauna.vigilance.push(hash(index + 59, manifest.seed));
+  }
+  return fauna;
 }
 
 function buildAgentDetail(
@@ -640,6 +697,9 @@ function buildAgentDetail(
     technology: {
       research_progress: hash(index + 101, frame.tick) * 0.95,
       knows_seafaring: frame.agents.knows_seafaring[index] ?? false,
+      known_techniques: frame.agents.knows_seafaring[index]
+        ? ["seafaring"]
+        : [],
       vessel_durability: numericAt(
         frame.agents.vessel_durability,
         index,

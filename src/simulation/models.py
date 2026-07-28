@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from . import knowledge
 from .entities import EntityKind
 from .language import Lexicon
+from .memory import PlaceMemory
 from .neural import Network
 from .health import InfectionStage
 
@@ -33,6 +35,7 @@ class ActionKind(str, Enum):
     EAT = "eat"
     GATHER = "gather"
     GATHER_MATERIAL = "gather_material"
+    HUNT = "hunt"
     SHARE = "share"
     COURT = "court"
     REPRODUCE = "reproduce"
@@ -119,8 +122,15 @@ class Agent:
     reproductive_role: ReproductiveRole
     birth_country_id: int
     belief_id: int
-    research_progress: float = 0.0
-    knows_seafaring: bool = False
+    # What this person has worked out, as a bit per technique, and how far
+    # along they are on each. Both are general: nothing here names a skill,
+    # so what can be learned is a table in `knowledge` rather than a field.
+    known_techniques: int = 0
+    technique_progress: Optional[List[float]] = None
+    # Places this person found worth something, and when. Allocated on the
+    # first successful harvest, because someone who has never taken anything
+    # out of the ground has nothing to remember about it.
+    places: Optional["PlaceMemory"] = None
     vessel_durability: float = 0.0
     voyage_dx: int = 0
     voyage_dy: int = 0
@@ -144,6 +154,36 @@ class Agent:
     bond_last_together_tick: int = -1
     infection_stage: InfectionStage = InfectionStage.SUSCEPTIBLE
     infection_ticks_remaining: int = 0
+
+    # Kept as views onto the general store so that everything already
+    # reading these — the service contract, the UI, the digest — keeps
+    # working while the engine underneath stops knowing what seafaring is.
+    @property
+    def knows_seafaring(self) -> bool:
+        return bool(
+            self.known_techniques & (1 << knowledge.SEAFARING.index)
+        )
+
+    @knows_seafaring.setter
+    def knows_seafaring(self, value: bool) -> None:
+        bit = 1 << knowledge.SEAFARING.index
+        if value:
+            self.known_techniques |= bit
+        else:
+            self.known_techniques &= ~bit
+
+    @property
+    def research_progress(self) -> float:
+        """Progress on whatever is currently being worked at.
+
+        A single number because that is what the existing surface exposes.
+        With several techniques in progress it reports the furthest along,
+        which is the one about to become visible as a discovery.
+        """
+
+        if not self.technique_progress:
+            return 0.0
+        return max(self.technique_progress)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +282,26 @@ class Metrics:
     mean_social_connections: float
     mean_trust: float
     isolated_population: int
+    mean_vocabulary: float
+    language_agreement: float
+    language_global_agreement: float
+    distinct_words: int
+    speaking_population: int
+    coinages: int
+    fauna_population: int
+    fauna_mean_energy: float
+    fauna_mean_vigilance: float
+    fauna_mean_age: float
+    fauna_born: int
+    fauna_died: int
+    fauna_grazed: float
+    hunts: int
+    hunt_kills: int
+    meat_gained: float
+    mean_network_magnitude: float
+    mean_plasticity: float
+    policy_diversity: float
+    mean_remembered_places: float
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -305,4 +365,26 @@ class Metrics:
             "mean_social_connections": self.mean_social_connections,
             "mean_trust": self.mean_trust,
             "isolated_population": self.isolated_population,
+            "mean_vocabulary": self.mean_vocabulary,
+            "language_agreement": self.language_agreement,
+            "language_global_agreement": (
+                self.language_global_agreement
+            ),
+            "distinct_words": self.distinct_words,
+            "speaking_population": self.speaking_population,
+            "coinages": self.coinages,
+            "fauna_population": self.fauna_population,
+            "fauna_mean_energy": self.fauna_mean_energy,
+            "fauna_mean_vigilance": self.fauna_mean_vigilance,
+            "fauna_mean_age": self.fauna_mean_age,
+            "fauna_born": self.fauna_born,
+            "fauna_died": self.fauna_died,
+            "fauna_grazed": self.fauna_grazed,
+            "hunts": self.hunts,
+            "hunt_kills": self.hunt_kills,
+            "meat_gained": self.meat_gained,
+            "mean_network_magnitude": self.mean_network_magnitude,
+            "mean_plasticity": self.mean_plasticity,
+            "policy_diversity": self.policy_diversity,
+            "mean_remembered_places": self.mean_remembered_places,
         }

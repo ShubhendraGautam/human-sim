@@ -134,10 +134,32 @@ that cannot answer them is scenery.
   beside it. Acceptance: with flora off, food renews as it does today; with
   flora on, food exists where plants are, and clearing an area has
   consequences that outlast the tick. Anything less makes a tree decoration.
-- [ ] **B5 Fauna.** Cheap policies, not the human decision path. Fauna also
-  retire the environmental disease hazard: that hazard exists only because the
-  reservoirs — water, soil, animals — are not simulated, and it is meant to
-  disappear when they are.
+- [x] **B5 Fauna.** *Shipped.* `src.simulation.fauna` holds grazing animals
+  as registered `FAUNA` entities on a cheap fixed policy — each reads only its
+  own cell and four neighbours, never `_decide`. They draw on the same food
+  layer people harvest, and carry energy that a hunter recovers as food, so a
+  herd is competition and larder without either being a rule about people.
+  Vigilance and fecundity are heritable and mutate.
+
+  Measured: intake had to fall away as a patch empties. Without that response
+  the herd flattened the world to 3% of capacity and held it there — growth
+  in `world` is a share of the *deficit*, so bare ground regrows fastest and
+  an unrestrained grazer sits on top of maximum regrowth taking all of it.
+  With the response, two seeds ran 600 ticks with the herd oscillating
+  between roughly 1,500 and 3,500, resources holding at 45–78%, and the human
+  population growing alongside it.
+
+  **Not done:** fauna do *not* yet retire `environmental_exposure_rate_per_year`.
+  Animals exist but are not disease reservoirs, so the standing hazard is
+  still doing that job and this item is only half discharged.
+
+  **Not done:** there is no spawner and none is wanted. Overhunting to
+  extinction is reachable and observed: `configs/scarcity.json` puts 400
+  people on a 24x24 map and the herd is gone inside five years. Whether the
+  same happens eventually under the *default* configuration is not settled —
+  runs to tick 900 show the herd suppressed from ~900 to ~400 as the human
+  population passes 1,000, which is a trend and not yet an answer.
+
 - [ ] **B6 The update budget.** The keystone of this track. **Not every
   registered entity gets a per-tick decision.** Three tiers: per-cell
   aggregate (flora), cheap fixed policy (fauna), full decision (people).
@@ -145,6 +167,14 @@ that cannot answer them is scenery.
   `_decide` the tick dies. Budget: all of Track B stays within 2x the
   person-only tick at equal population, or it becomes a native-kernel
   conversation rather than more Python.
+
+  *Fauna arm measured.* Animals run on a fixed policy and never enter
+  `_decide`. At 1,225 people, a ~300-animal herd cost 1.17x the person-only
+  tick. Absolute per-tick numbers from that run are not comparable to the
+  reference in `architecture.md` — the machine was running several
+  simulations at once — but both arms paid the same tax and the ratio is
+  what the gate asks for. The item stays open until flora are in, since the
+  budget is for all of Track B rather than one kind of it.
 - [ ] **B7 Invariants and digest.** `state_digest()` covers the new kinds, and
   `validate_state` gains the invariants each kind makes possible.
 
@@ -204,12 +234,127 @@ substrate rather than as a place to stop.
   longer runs or a scenario with sharper mortality, and a metric for weight
   magnitude and policy diversity over lineages.
 
-- [ ] **C1b Lifetime plasticity.** Inherited weights are the starting point,
-  not self-modification. A brain that changes *within* a life — a
-  reward-modulated update on the output layer, using the outcome signal
-  `BrainState` already receives — is what makes this Track C rather than
-  Track genetics. Deferred deliberately: inheritance had to be correct and
-  measurable first.
+- [x] **C1b Lifetime plasticity.** *Built, measured, and shipped **off**.*
+  A reward-modulated update on the output layer, using the outcome signal
+  `BrainState` already receives, credited to the hidden units that were
+  active when the choice was made. It costs energy, so changing your own
+  mind competes with eating and failure mode 1 is closed by construction.
+
+  The learned overlay lives on `BrainState`, not on the network. That is
+  the Weismann barrier for minds: `BrainState` is created fresh for every
+  child and is never an input to `neural.inherit`, so lifetime experience
+  cannot become heritable by accident. A test maxes out a parent's overlay
+  and asserts the identical recombination comes out unchanged.
+
+  **The signal had to be an advantage, not a reward.** Reinforcing the raw
+  outcome sounds equivalent and is not. Almost every action returns
+  something, so raw reward pushes every frequently-taken action upward and
+  the brain entrenches whatever it already did most — self-confirmation
+  rather than learning. Measured over six seeds in a scarce world that arm
+  finished at 73.7 people against 82.0 for inherited weights alone and 75.3
+  for no brain at all: worse than having no brain. Subtracting the running
+  average the habit vector already keeps restores it to learning.
+
+  **C5 is not satisfied, and this is recorded rather than tuned away.**
+  With the advantage signal, six seeds x 400 ticks in the scarce world:
+
+  | arm | population | sd |
+  | --- | --- | --- |
+  | no brain | 75.3 | 7.2 |
+  | inherited only | 82.0 | 6.1 |
+  | + plasticity | 79.0 | 6.8 |
+  | + place memory | 81.2 | 3.8 |
+
+  The gain over having no brain at all is real and belongs to **perception
+  and audibility** (C1c), not to lifetime learning. Plasticity and place
+  memory together land at 81.2 against 82.0 for inherited weights alone —
+  indistinguishable, which is exactly the condition C5 says makes a feature
+  decoration. Place memory does halve the between-seed spread (6.1 to 3.8),
+  which is a real effect on reliability rather than on the mean, and is the
+  one thing here worth following up.
+
+  **Cost, attributed.** At ~700 people, against minds fully off:
+
+  | arm | ms/tick | ratio |
+  | --- | --- | --- |
+  | minds off | 164.4 | — |
+  | perception only | 199.7 | 1.21x |
+  | + place memory | 197.5 | 1.20x |
+  | + plasticity | 202.2 | 1.23x |
+
+  Nearly the whole price is perception — seven extra senses widen the hidden
+  layer by half again, and two of them are bounded spatial queries per agent
+  per tick. Place memory is free within measurement noise and plasticity
+  costs about two percent. So the expensive part is the part that pays and
+  the cheap part is the part that does not, which is an awkward result but
+  the one the numbers give.
+
+  (`is_coast` was recomputing four neighbour lookups per asking. Terrain
+  never changes during a run, so it is now a mask built once at world
+  construction; that alone took the total from 1.31x to 1.23x.)
+
+  **Is it the price or the rule?** Both, and the rule more. Six seeds at 600
+  ticks:
+
+  | arm | population |
+  | --- | --- |
+  | no learning | 23.7 |
+  | learning, costed (rate 0.5) | 17.8 |
+  | learning, free (rate 0.5) | 21.7 |
+  | learning, free (rate 1.0) | 18.8 |
+
+  Waiving the price recovers about half the loss and still does not beat not
+  learning. The energy cost cannot explain the rest — 0.02 per action over a
+  life is about two percent of lifetime energy, not a quarter of the
+  population — so the remainder is behavioural.
+
+  The last row is the informative one: **doubling the learning rate makes it
+  worse**, a dose-response in the wrong direction. That is the signature of
+  a mechanism adding variance rather than signal. A single-sample advantage
+  estimate in a world this stochastic is mostly noise, and
+  `neural_output_weight` faithfully amplifies it into the decision. Fixing
+  that means averaging evidence over more than one outcome before acting on
+  it — eligibility traces, or a slower second-order estimate — which is a
+  design change rather than a tuning pass and is not attempted here.
+
+  **Decision: `plasticity_rate` defaults to 0.0.** The mechanism, its off
+  switch and its twenty-five tests stay. C5 says a feature that cannot be
+  distinguished from its absence is decoration and gets removed rather than
+  tuned; this one *could* be distinguished, in the wrong direction, which is
+  a stronger reason not to ship it on.
+
+  Two readings remain open and are not settled by this data. C4 says a
+  better brain in a world with thirteen actions and no artifacts just
+  performs the same thirteen actions slightly better — so this may be a
+  Track B deficiency surfacing as a Track C result, which is failure mode 3
+  and is diagnosed *there*, not here. And 400 ticks is about 33 years, so
+  the horizon may simply be short. Neither is accepted as a reason to ship
+  the feature on, and the useful next question is what has to become true
+  about the world before lifetime learning starts paying.
+
+- [x] **C1c Perception.** *Shipped.* Thirteen of the network's fourteen
+  senses were the body reporting on itself; the only outward one was a
+  neighbour count. A brain could feel hungry but could not perceive that the
+  ground was bare, that it was better one step over, that winter was coming,
+  or that an animal was within reach — so every one of those judgements had
+  to be supplied by a constant in the config, which is precisely the
+  hardcoding this project refuses. Seven world senses were added, all values
+  the deciding code already computes and passes in.
+
+  Related and measured: the network was inaudible. Its whole output came to
+  about 0.05 utility units against a `decision_noise` of 0.20 and a
+  `gather_weight` of 2.4 — quieter than the dice. On/off runs over five
+  seeds were indistinguishable (438.6 against 447.8, brains-off nominally
+  ahead), which is C5's kill criterion being met by the *old* arrangement.
+  `neural_output_weight` was raised so a brain that has learned something
+  can be heard.
+
+- [x] **C1d Place memory.** *Shipped.* A bounded, fading store of cells that
+  paid out, written only where the agent stood and took something from the
+  ground. It feeds both a sense and a movement option, so returning to a
+  remembered place is a choice weighed against the others rather than a
+  behaviour. Before it, movement was pure local gradient: an agent could not
+  hold the thought that there was food over the ridge last spring.
 
 - [ ] **C1 Level 1 — a weight vector that is heritable, learnable, and
   teachable.** Promote action scoring from config constants to per-agent data.

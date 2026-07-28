@@ -14,11 +14,13 @@ from typing import (
     Tuple,
 )
 
-from .brain import BrainState, choose_action
+from .brain import BrainState, Surroundings, choose_action
+from . import fauna as fauna_module
 from . import language
 from . import neural
 from .config import SimulationConfig
 from .entities import EntityKind, EntityRegistry
+from . import knowledge
 from .genetics import (
     Gene,
     Genome,
@@ -31,6 +33,7 @@ from .health import (
     host_susceptibility,
     transmission_probability,
 )
+from .memory import PlaceMemory
 from .life_history import (
     annual_hazard_to_tick,
     effective_health_capacity,
@@ -92,6 +95,21 @@ class Simulation:
         self.agents: Dict[int, Agent] = self.entities.of_kind(
             EntityKind.PERSON
         )
+        # Animals live in the same identity space and the same spatial index
+        # as people. The herd owns their behaviour; nothing in it knows that
+        # people exist.
+        self.herd = fauna_module.Herd(
+            self.config,
+            self.world,
+            self.entities,
+            self._stable_uniform,
+        )
+        self.fauna: Dict[int, fauna_module.Animal] = self.entities.of_kind(
+            EntityKind.FAUNA
+        )
+        self.total_hunts = 0
+        self.total_hunt_kills = 0
+        self._last_meat_gained = 0.0
         self.tick = 0
         self.total_births = 0
         self.total_conceptions = 0
@@ -136,6 +154,9 @@ class Simulation:
         for country in self.scenario.countries:
             for _ in range(country.population):
                 self._add_founder(country)
+        # Seeded after people so that adding animals does not shift the
+        # random stream the founding population was drawn from.
+        self.herd.seed(self.rng)
         self.world.rebuild_spatial_index(self.entities.placed())
         self._sample_metrics(force=True)
 
@@ -158,6 +179,7 @@ class Simulation:
         self._last_food_lost_on_death = 0.0
         self._last_material_consumed = 0.0
         self._last_material_lost_on_death = 0.0
+        self._last_meat_gained = 0.0
         # Disease and metabolism observe the same agent set, so they share one
         # deterministic ordering instead of sorting the population twice.
         ordered_agents = self._ordered_agents()
@@ -173,6 +195,11 @@ class Simulation:
         # this tick has already put its crew ashore or in the water.
         self._advance_voyages()
 
+        self.world.rebuild_spatial_index(self.entities.placed())
+        # Animals eat, move and breed before anyone decides anything, so a
+        # hunter is choosing against the herd as it actually stands rather
+        # than where it was last tick.
+        self.herd.advance(self.tick)
         self.world.rebuild_spatial_index(self.entities.placed())
         # Bonds are maintained after the index is current, so proximity is
         # judged on where everyone actually is this tick.
@@ -728,10 +755,34 @@ class Simulation:
             if capacity_loss > 0.0:
                 damage_by_cause["frailty"] = capacity_loss
             agent.health = min(agent.health, health_capacity)
+            # Starvation is not an event that starts at zero energy. A body
+            # that has been running short is already losing condition, and
+            # the damage scales with how far below its needs it has been
+            # rather than switching on the moment the last unit is spent.
+            # Without the ramp there is no feedback until a population is
+            # already doomed: everyone crosses zero within the same few
+            # ticks and the crash overshoots to extinction instead of
+            # settling at what the land can actually feed.
+            nutrition = min(
+                agent.body_condition,
+                agent.energy / config.maximum_energy,
+            )
+            shortfall = 0.0
             if agent.energy <= 0.0:
+                # Nothing left at all is the full penalty however the ramp
+                # is configured. At threshold zero this is the only case
+                # that fires, which is exactly the old cliff.
+                shortfall = 1.0
+            elif nutrition < config.malnutrition_threshold:
+                shortfall = (
+                    (config.malnutrition_threshold - nutrition)
+                    / config.malnutrition_threshold
+                )
+            if shortfall > 0.0:
                 starvation_damage = (
                     config.starvation_damage
                     * tick_scale
+                    * shortfall
                     * (1.25 - 0.5 * agent.traits.constitution)
                 )
                 agent.health -= starvation_damage
@@ -840,6 +891,30 @@ class Simulation:
             * agent.development_index
         )
 
+        # Looked up once here, before anything branches, so that a hunter, a
+        # forager and a child all perceive the same world. A brain that saw
+        # different senses depending on which options happened to be open to
+        # it could not learn anything stable about any of them.
+        quarry = (
+            self._nearest_quarry(agent) if config.fauna_enabled else None
+        )
+        remembered = self._remembered_place(agent)
+        surroundings = Surroundings(
+            food_here=resource_fraction,
+            food_nearby=self.world.food_gradient(agent.x, agent.y),
+            material_here=min(
+                1.0,
+                current_material / max(config.material_cell_capacity, 1e-9),
+            ),
+            season=self.world.season_at(agent.y),
+            animal_near=quarry is not None,
+            on_coast=self.world.is_coast(agent.x, agent.y),
+            remembered_place=(
+                0.0 if remembered is None
+                else max(0.0, remembered[1] - resource_fraction)
+            ),
+        )
+
         options: List[Tuple[float, Action]] = [
             (
                 config.rest_utility
@@ -865,6 +940,7 @@ class Simulation:
                 rng,
                 config,
                 current_tick=self.tick,
+                surroundings=surroundings,
             )
 
         if (
@@ -898,6 +974,42 @@ class Simulation:
                     Action(ActionKind.GATHER_MATERIAL, agent.id),
                 )
             )
+
+        # An animal within reach is worth considering against the ground
+        # underfoot. Nothing prefers meat here: the option is weighed on the
+        # same scale as gathering, it costs energy whether or not it lands,
+        # and a wary animal is a worse bet than a placid one. Which of the
+        # two a population lives on is therefore an outcome.
+        if (
+            agent.inventory < config.inventory_capacity
+            and agent.energy > config.hunt_energy_cost
+        ):
+            if quarry is not None:
+                chance = fauna_module.catch_probability(
+                    quarry,
+                    physical_capacity
+                    * knowledge.hunt_multiplier(agent.known_techniques),
+                    config,
+                )
+                expected = (
+                    chance
+                    * min(
+                        fauna_module.meat_yield(quarry, config),
+                        config.inventory_capacity - agent.inventory,
+                    )
+                    / max(config.inventory_capacity, 1e-9)
+                )
+                options.append(
+                    (
+                        config.hunt_weight * expected
+                        + (random_value() * 2.0 - 1.0) * noise_amplitude,
+                        Action(
+                            ActionKind.HUNT,
+                            agent.id,
+                            target_id=quarry.id,
+                        ),
+                    )
+                )
 
         relationship_views = (
             {
@@ -1037,11 +1149,11 @@ class Simulation:
                     ),
                 ))
 
-        if agent.knows_seafaring:
+        if agent.known_techniques:
             teaching_weight = config.teaching_weight
             generosity = self._temperament(agent, "generosity")
             for learner in living_neighbors:
-                if learner.knows_seafaring:
+                if not agent.known_techniques & ~learner.known_techniques:
                     continue
                 preference, _ = relationship_bonus(learner)
                 append_option((
@@ -1075,7 +1187,7 @@ class Simulation:
                 ))
 
         if (
-            agent.knows_seafaring
+            knowledge.opens_water(agent.known_techniques)
             and agent.vessel_durability <= 0.0
             and agent.material_inventory >= config.vessel_material_cost
             and agent.energy >= config.vessel_energy_cost
@@ -1089,11 +1201,16 @@ class Simulation:
                 )
             )
 
+        # Anything worth working out here, rather than one named thing at
+        # one named kind of place.
         if (
-            not agent.knows_seafaring
-            and self.world.is_coast(agent.x, agent.y)
-            and agent.material_inventory >= config.research_material_cost
+            agent.material_inventory >= config.research_material_cost
             and agent.energy >= config.research_energy_minimum
+            and knowledge.discoverable(
+                agent.known_techniques,
+                self._affordances(agent, quarry=quarry),
+            )
+            is not None
         ):
             options.append(
                 (
@@ -1267,6 +1384,28 @@ class Simulation:
                 )
             )
 
+        # Somewhere this person has actually been and found worth something.
+        # This is the only option in the whole decision that is not a
+        # response to what is currently within sight — everything else is a
+        # reaction to the present cell and its neighbours. Being able to go
+        # back to a place you remember is the difference between foraging
+        # and rolling downhill.
+        if remembered is not None and config.place_return_weight > 0.0:
+            remembered_cell, remembered_quality = remembered
+            target_x, target_y = self.world.coordinates(remembered_cell)
+            step = self._step_toward_cell(agent, target_x, target_y)
+            if step != (agent.x, agent.y):
+                append_option((
+                    config.place_return_weight
+                    * max(remembered_quality - resource_fraction, 0.0)
+                    + (random_value() * 2.0 - 1.0) * noise_amplitude,
+                    Action(
+                        ActionKind.MOVE,
+                        agent_id,
+                        destination=step,
+                    ),
+                ))
+
         # A bond is only useful when the couple is together: measured without
         # this, partners drifted to a median of four cells apart and were
         # adjacent barely a tenth of the time, so bonded reproduction could
@@ -1315,6 +1454,7 @@ class Simulation:
             config,
             social_weights=social_weights,
             current_tick=self.tick,
+            surroundings=surroundings,
         )
 
     def _decision_rng(self, agent_id: int) -> random.Random:
@@ -1600,6 +1740,7 @@ class Simulation:
         self._record(Event(self.tick, kind, (agent.id, partner_id)))
 
     def _resolve(self, actions: Iterable[Action]) -> None:
+        config = self.config
         action_list = list(actions)
         counts: Counter[str] = Counter()
         attempts: Counter[str] = Counter(
@@ -1700,6 +1841,8 @@ class Simulation:
                 applied = self._gather(agent)
             elif action.kind is ActionKind.GATHER_MATERIAL:
                 applied = self._gather_material(agent)
+            elif action.kind is ActionKind.HUNT:
+                applied = self._hunt(agent, action.target_id)
             elif action.kind is ActionKind.SHARE:
                 applied = self._share(agent, action.target_id)
             elif action.kind is ActionKind.CARE:
@@ -1753,6 +1896,48 @@ class Simulation:
                 tick=self.tick,
                 success=applied,
             )
+            # The same outcome that moves the flat habit vector also moves
+            # the network's output layer, but credited to the hidden units
+            # that were active when the choice was made. That is what makes
+            # it a policy — "this action, in circumstances like these" —
+            # rather than the context-free "I like gathering" the habit
+            # vector can express. What is learned is never inherited: the
+            # overlay lives on BrainState and dies with the person.
+            if (
+                config.neural_brains_enabled
+                and config.plasticity_rate > 0.0
+                and agent.energy > config.plasticity_energy_cost
+            ):
+                # Inherited learning rate enters as a proportion of the
+                # fastest learner rather than as a raw multiplier. Used
+                # directly it is a number around 0.1, which quietly divided
+                # the configured rate by ten and made plasticity a rounding
+                # error rather than a mechanism.
+                aptitude = (
+                    agent.traits.learning_rate
+                    / max(config.maximum_learning_rate, 1e-9)
+                )
+                # How much better this went than this action usually goes,
+                # not how well it went. Reinforcing the raw outcome sounds
+                # equivalent and is not: almost every action returns
+                # something, so raw reward drives every frequently-taken
+                # action upward and the brain ends up entrenching whatever
+                # it already did most. Measured, that arm was worse than
+                # having no brain at all. Subtracting the running average
+                # the habit vector already keeps turns it back into
+                # learning: beat your own expectation and the disposition
+                # moves toward it, fall short and it moves away.
+                changed = agent.brain.adapt(
+                    learned_action,
+                    reward - agent.brain.preference(learned_action),
+                    config.plasticity_rate * aptitude,
+                    config.plasticity_limit,
+                    config.neural_hidden_units,
+                )
+                if changed:
+                    # Changing your own mind is not free, or everyone would
+                    # do it constantly and it would stop being a trade.
+                    agent.energy -= config.plasticity_energy_cost
             if applied:
                 counts[action.kind.value] += 1
             else:
@@ -1829,12 +2014,161 @@ class Simulation:
             self.config.harvest_amount
             * agent.traits.harvest_skill
             * capability
-            * developed_capacity,
+            * developed_capacity
+            * knowledge.harvest_multiplier(agent.known_techniques),
             self.config.inventory_capacity - agent.inventory,
         )
         amount = self.world.harvest(agent.x, agent.y, requested)
         agent.inventory += amount
+        if amount > 0.0:
+            # What this place was worth, judged by how full it still is
+            # rather than by what was taken: a rich cell stays worth coming
+            # back to, a cell scraped bare does not.
+            self._remember_place(
+                agent,
+                self.world.food_fraction(agent.x, agent.y),
+            )
+        elif agent.places is not None:
+            # Arrived and found nothing. A memory that has stopped being
+            # true stops being acted on.
+            cell = self.world.try_cell_index(agent.x, agent.y)
+            if cell is not None:
+                agent.places.forget(cell)
         return amount > 0.0
+
+    def _remembered_place(
+        self,
+        agent: Agent,
+    ) -> Optional[Tuple[int, float]]:
+        """The best place this person still believes in, if any."""
+
+        memory = agent.places
+        if memory is None or not memory.places:
+            return None
+        here = self.world.try_cell_index(agent.x, agent.y)
+        return memory.best(
+            self.tick,
+            self.config.place_memory_half_life_years
+            * self.config.ticks_per_year,
+            exclude_cell=here,
+        )
+
+    def _remember_place(self, agent: Agent, quality: float) -> None:
+        """Record that this cell paid out, so it can be returned to.
+
+        Only ever called from somewhere the agent is actually standing and
+        has actually taken something from, so a memory is experience rather
+        than a readout of the map.
+        """
+
+        capacity = self.config.place_memory_capacity
+        if capacity <= 0 or quality <= 0.0:
+            return
+        cell = self.world.try_cell_index(agent.x, agent.y)
+        if cell is None:
+            return
+        if agent.places is None:
+            agent.places = PlaceMemory()
+        agent.places.remember(cell, quality, self.tick, capacity)
+
+    def _nearest_quarry(
+        self,
+        agent: Agent,
+    ) -> Optional["fauna_module.Animal"]:
+        """The animal this person could try for, if any.
+
+        Bounded exactly like every other kind of local perception: the cells
+        within the interaction radius, and the lowest id in the first cell
+        that has one. Animals live in their own bucket of the spatial index,
+        so looking for one never walks past a crowd of people.
+        """
+
+        if not self.fauna:
+            return None
+        occupants = self.world.occupants_of_kind(EntityKind.FAUNA)
+        if not occupants:
+            return None
+        for cell in self.world.nearby_cell_indices(
+            agent.x,
+            agent.y,
+            self.config.interaction_radius,
+        ):
+            for entity_id in occupants.get(cell, ()):
+                animal = self.fauna.get(entity_id)
+                if animal is not None:
+                    return animal
+        return None
+
+    def _hunt(self, agent: Agent, target_id: Optional[int]) -> bool:
+        """Try for an animal. Pay either way.
+
+        The cost is spent before the outcome is known, which is what makes
+        hunting a gamble rather than a better kind of gathering. A failed
+        attempt leaves the animal alive and the hunter poorer, and that is
+        the only thing stopping a herd from being a free larder.
+        """
+
+        config = self.config
+        if target_id is None or agent.energy <= config.hunt_energy_cost:
+            return False
+        animal = self.fauna.get(target_id)
+        if animal is None or not self._within_reach(agent, animal):
+            return False
+        agent.energy -= config.hunt_energy_cost
+        self.total_hunts += 1
+        chance = fauna_module.catch_probability(
+            animal,
+            self._capability(agent)
+            * knowledge.hunt_multiplier(agent.known_techniques),
+            config,
+        )
+        if (
+            self._stable_uniform(agent.id ^ (animal.id << 1), 0xF100)
+            >= chance
+        ):
+            self._record(Event(
+                self.tick,
+                "hunt_failed",
+                (agent.id, animal.id),
+            ))
+            return False
+        meat = min(
+            fauna_module.meat_yield(animal, config),
+            config.inventory_capacity - agent.inventory,
+        )
+        self.herd.remove(animal.id, hunted=True)
+        agent.inventory += meat
+        self._last_meat_gained += meat
+        self.total_hunt_kills += 1
+        self._record(Event(
+            self.tick,
+            "hunt_killed",
+            (agent.id, animal.id),
+            (("meat", meat),),
+        ))
+        return meat > 0.0
+
+    def _within_reach(
+        self,
+        agent: Agent,
+        animal: "fauna_module.Animal",
+    ) -> bool:
+        radius = self.config.interaction_radius
+        if self.config.wrap_world:
+            width = self.config.width
+            height = self.config.height
+            dx = min(
+                (agent.x - animal.x) % width,
+                (animal.x - agent.x) % width,
+            )
+            dy = min(
+                (agent.y - animal.y) % height,
+                (animal.y - agent.y) % height,
+            )
+        else:
+            dx = abs(agent.x - animal.x)
+            dy = abs(agent.y - animal.y)
+        return dx <= radius and dy <= radius
 
     def _gather_material(self, agent: Agent) -> bool:
         capability = self._capability(agent)
@@ -2048,20 +2382,59 @@ class Simulation:
         destination, _, _ = rng.choice(candidates)
         return destination
 
+    def _affordances(
+        self,
+        agent: Agent,
+        quarry: Optional["fauna_module.Animal"] = None,
+    ) -> int:
+        """What the place this person is standing in makes thinkable.
+
+        This is the whole of the grounding: a problem has to be in front of
+        someone before they can work on it. Nobody works out how to cross
+        water inland, or how to track animals in an empty valley.
+        """
+
+        available = 0
+        if self.world.is_coast(agent.x, agent.y):
+            available |= 1 << knowledge.Affordance.COAST
+        if (
+            agent.material_inventory > 0.0
+            or self.world.material_at(agent.x, agent.y) > 0.0
+        ):
+            available |= 1 << knowledge.Affordance.MATERIALS
+        if self.config.fauna_enabled and (
+            quarry is not None or self._nearest_quarry(agent)
+        ):
+            available |= 1 << knowledge.Affordance.FAUNA
+        return available
+
     def _research(self, agent: Agent) -> bool:
+        """Work at whatever problem this place poses.
+
+        Nothing in here names a technique. The circumstance decides what is
+        available to work on, temperament decides how fast it goes, and the
+        table in `knowledge` decides when it is done.
+        """
+
         config = self.config
         if (
-            agent.knows_seafaring
-            or not self.world.is_coast(agent.x, agent.y)
-            or agent.material_inventory < config.research_material_cost
+            agent.material_inventory < config.research_material_cost
             or agent.energy < config.research_energy_minimum
             or agent.energy < config.research_energy_cost
         ):
             return False
+        technique = knowledge.discoverable(
+            agent.known_techniques,
+            self._affordances(agent),
+        )
+        if technique is None:
+            return False
         agent.material_inventory -= config.research_material_cost
         self._last_material_consumed += config.research_material_cost
         agent.energy -= config.research_energy_cost
-        agent.research_progress += (
+        if agent.technique_progress is None:
+            agent.technique_progress = [0.0] * knowledge.TECHNIQUE_COUNT
+        agent.technique_progress[technique.index] += (
             self._temperament(agent, "curiosity")
             * self._temperament(agent, "exploration")
             * (
@@ -2073,24 +2446,45 @@ class Simulation:
                 * self._stable_uniform(agent.id, 0xE51)
             )
         )
-        if agent.research_progress >= config.seafaring_discovery_threshold:
-            agent.knows_seafaring = True
+        if (
+            agent.technique_progress[technique.index]
+            >= config.discovery_threshold * technique.effort
+        ):
+            agent.known_techniques = knowledge.with_technique(
+                agent.known_techniques,
+                technique,
+            )
             self.total_inventions += 1
-            self._record(Event(self.tick, "invent_seafaring", (agent.id,)))
+            self._record(Event(
+                self.tick,
+                "invent",
+                (agent.id,),
+                (("technique", float(technique.index)),),
+            ))
         return True
 
     def _teach(self, agent: Agent, target_id: Optional[int]) -> bool:
-        if target_id is None or not agent.knows_seafaring:
+        """Pass on the first thing this person has that the other lacks."""
+
+        if target_id is None or not agent.known_techniques:
             return False
         target = self.agents.get(target_id)
         if (
             target is None
             or target.id == agent.id
             or not self._are_local(agent, target)
-            or target.knows_seafaring
         ):
             return False
-        target.knows_seafaring = True
+        technique = knowledge.teachable(
+            agent.known_techniques,
+            target.known_techniques,
+        )
+        if technique is None:
+            return False
+        target.known_techniques = knowledge.with_technique(
+            target.known_techniques,
+            technique,
+        )
         self._record_social_benefit(agent, target, 0.5)
         self._transmit_culture(
             agent,
@@ -2100,15 +2494,18 @@ class Simulation:
             channel=0x7EA,
             signal_values={"curiosity": 1.0},
         )
-        self._record(
-            Event(self.tick, "teach_seafaring", (agent.id, target.id))
-        )
+        self._record(Event(
+            self.tick,
+            "teach",
+            (agent.id, target.id),
+            (("technique", float(technique.index)),),
+        ))
         return True
 
     def _build_vessel(self, agent: Agent) -> bool:
         config = self.config
         if (
-            not agent.knows_seafaring
+            not knowledge.opens_water(agent.known_techniques)
             or agent.vessel_durability > 0.0
             or agent.material_inventory < config.vessel_material_cost
             or agent.energy < config.vessel_energy_cost
@@ -2154,6 +2551,11 @@ class Simulation:
             channel=0x5A2,
             signal_values={"generosity": 1.0},
         )
+        # Handing food over is the act itself standing in front of both of
+        # them, which is what lets a sound attach to it. Without a moment
+        # like this the meaning is unreachable and no word for it can exist.
+        if self.config.language_enabled:
+            self._speak(agent, target, language.MEANING_INDEX["give"])
         self._record(Event(self.tick, "share", (agent.id, target.id)))
         return True
 
@@ -2193,6 +2595,14 @@ class Simulation:
             channel=0xCA2,
             signal_values={"generosity": 1.0},
         )
+        # Feeding a child is the one interaction that reliably puts a
+        # speaker and a listener in front of the same thing, repeatedly, for
+        # years. Without it a language cannot outlive the people who coined
+        # it: every child would start mute and invent its own forms, so
+        # vocabulary would reset every generation no matter how well adults
+        # agreed among themselves.
+        if self.config.language_caregiver_transmission:
+            self._speak(agent, target)
         self._record(Event(self.tick, "care", (agent.id, target.id)))
         return True
 
@@ -2288,30 +2698,52 @@ class Simulation:
         self,
         agent: Agent,
         target: Agent,
+        situation: Optional[int] = None,
     ) -> Tuple[Tuple[str, float], ...]:
         """Say one thing, and let the listener make of it what they will.
 
         Nothing here checks whether a word is the "right" one. The speaker
         uses whatever form they hold, the listener copies it or does not, and
         agreement is whatever survives that process across a population.
+
+        ``situation`` names what the speaker is visibly doing, for the cases
+        where the act itself is the referent and both parties can see it. It
+        is not a richer topic than the speaker's own circumstances, just a
+        different way of being in the presence of one.
         """
 
-        if not self.config.language_enabled:
+        config = self.config
+        if not config.language_enabled:
             return ()
-        meaning = self._topic(agent, target)
+        meaning = (
+            self._topic(agent, target) if situation is None else situation
+        )
+        # Channels are spaced by the meaning count so that the draw for one
+        # meaning can never collide with the draw for another purpose on a
+        # neighbouring meaning, which silently correlated invention with
+        # adoption while the ranges overlapped.
+        span = len(language.MEANINGS)
         word = agent.lexicon.word_for(meaning)
         coined = False
         if word == language.NO_WORD:
+            # Someone who has heard others name this has no reason to coin a
+            # rival form; they have simply not picked it up yet.
+            if agent.lexicon.exposed[meaning]:
+                return ()
             if (
-                self._stable_uniform(agent.id, 0xC10 + meaning)
-                >= self.config.language_invention_rate
+                self._stable_uniform(agent.id, 0xC100 + meaning)
+                >= config.language_invention_rate
             ):
                 return ()
             word = language.coin(
-                self._stable_uniform(agent.id, 0xC11 + meaning),
-                self._stable_uniform(agent.id, 0xC12 + meaning),
+                self._stable_uniform(agent.id, 0xC100 + span + meaning),
+                self._stable_uniform(agent.id, 0xC100 + 2 * span + meaning),
             )
-            agent.lexicon.learn(meaning, word)
+            agent.lexicon.learn(
+                meaning,
+                word,
+                config.language_initial_confidence,
+            )
             coined = True
             self.total_coinages += 1
 
@@ -2321,23 +2753,50 @@ class Simulation:
         # conformity and how much the listener has to gain: a person with no
         # word at all adopts far more readily than one replacing their own.
         receptiveness = (
-            target.traits.conformity * (1.0 - self.config.cultural_influence)
-            + target.culture.conformity * self.config.cultural_influence
+            target.traits.conformity * (1.0 - config.cultural_influence)
+            + target.culture.conformity * config.cultural_influence
         )
-        threshold = self.config.language_adoption_rate * (
+        threshold = config.language_adoption_rate * (
             0.55 + 0.45 * receptiveness
         )
-        if self._stable_uniform(target.id, 0xC13 + meaning) < threshold:
+        if not target.lexicon.knows(meaning):
+            threshold += (
+                1.0 - threshold
+            ) * config.language_naive_adoption_bonus
+        # Being spoken to counts even when the word does not stick: it is
+        # how the listener learns that this is a thing people have a sound
+        # for, which is what stops them minting a rival one.
+        target.lexicon.note_exposure(meaning)
+        # Mixed with the speaker so that a listener does not either take
+        # every word said to them this tick or none of them.
+        listener_channel = target.id ^ (agent.id << 1)
+        if (
+            self._stable_uniform(listener_channel, 0xC100 + 3 * span + meaning)
+            < threshold
+        ):
             if (
-                self._stable_uniform(target.id, 0xC14 + meaning)
-                < self.config.language_mutation_rate
+                self._stable_uniform(
+                    listener_channel,
+                    0xC100 + 4 * span + meaning,
+                )
+                < config.language_mutation_rate
             ):
                 heard = language.mutate(
                     word,
-                    self._stable_uniform(target.id, 0xC15 + meaning),
-                    self._stable_uniform(target.id, 0xC16 + meaning),
+                    self._stable_uniform(
+                        listener_channel,
+                        0xC100 + 5 * span + meaning,
+                    ),
+                    self._stable_uniform(
+                        listener_channel,
+                        0xC100 + 6 * span + meaning,
+                    ),
                 )
-            target.lexicon.hear(meaning, heard)
+            target.lexicon.hear(
+                meaning,
+                heard,
+                config.language_initial_confidence,
+            )
 
         return (
             ("meaning", float(meaning)),
@@ -2780,6 +3239,37 @@ class Simulation:
             elif delta < -(size // 2):
                 delta += size
         return 1 if delta > 0 else -1
+
+    def _step_toward_cell(
+        self,
+        agent: Agent,
+        target_x: int,
+        target_y: int,
+    ) -> Tuple[int, int]:
+        """One step toward a place rather than toward a person.
+
+        Same single-step discipline as `_step_toward`: nothing here proposes
+        a destination `_move` would refuse, so remembering somewhere never
+        becomes a way of getting there faster than walking.
+        """
+
+        config = self.config
+        step_x = agent.x + self._axis_step(agent.x, target_x, config.width)
+        step_y = agent.y + self._axis_step(agent.y, target_y, config.height)
+        if config.wrap_world:
+            step_x %= config.width
+            step_y %= config.height
+        if (step_x, step_y) == (agent.x, agent.y):
+            return (agent.x, agent.y)
+        index = self.world.try_cell_index(step_x, step_y)
+        if index is None:
+            return (agent.x, agent.y)
+        if (
+            self.world.terrain[index] == Terrain.SEA
+            and agent.vessel_durability <= 0.0
+        ):
+            return (agent.x, agent.y)
+        return (step_x, step_y)
 
     def _step_toward(
         self,

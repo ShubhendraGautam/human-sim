@@ -7,7 +7,7 @@ both names, so existing imports from there continue to work.
 
 # Incremented when a mechanic changes such that runs are no longer comparable
 # across revisions for the same configuration and seed.
-MODEL_VERSION = "0.5"
+MODEL_VERSION = "0.6"
 
 # Incremented when the shape of Simulation.snapshot() changes.
-SNAPSHOT_SCHEMA_VERSION = 3
+SNAPSHOT_SCHEMA_VERSION = 4

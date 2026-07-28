@@ -89,16 +89,28 @@ const SHAPES: Record<string, EventShape> = {
     importance: "routine",
     directed: true,
   },
-  teach_seafaring: {
+  teach: {
     label: "Teaching",
-    verb: "taught seafaring to",
+    verb: "taught something to",
     importance: "landmark",
     directed: true,
   },
-  invent_seafaring: {
+  invent: {
     label: "Invention",
-    verb: "worked out how to cross water",
+    verb: "worked something out",
     importance: "landmark",
+    directed: false,
+  },
+  hunt_killed: {
+    label: "Hunt",
+    verb: "brought down an animal",
+    importance: "notable",
+    directed: false,
+  },
+  hunt_failed: {
+    label: "Hunt failed",
+    verb: "lost an animal",
+    importance: "routine",
     directed: false,
   },
   build_vessel: {

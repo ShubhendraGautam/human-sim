@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import Any, Dict
 
-CONFIG_SCHEMA_VERSION = 4
+CONFIG_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +32,34 @@ class SimulationConfig:
     material_regeneration: float = 0.04
     materials_renewable: bool = False
 
+    # Animals. They graze the same layer people harvest, so a herd is both
+    # competition for food and food itself, and neither of those is written
+    # anywhere as a rule about people. There is no spawner: a population
+    # hunted to nothing stays nothing. At density zero the world has no
+    # animals in it and runs reproduce the model from before it did.
+    fauna_enabled: bool = True
+    initial_fauna_density: float = 0.10
+    fauna_metabolism: float = 16.0
+    fauna_graze_amount: float = 0.55
+    fauna_forage_energy: float = 5.0
+    fauna_energy_maximum: float = 22.0
+    fauna_birth_energy: float = 7.0
+    fauna_reproduction_energy: float = 15.0
+    fauna_reproduction_cost: float = 6.0
+    fauna_birth_rate: float = 0.18
+    fauna_maturity_age: float = 2.0
+    fauna_maximum_age: float = 14.0
+    fauna_mortality_rate_per_year: float = 0.12
+    fauna_wander_rate: float = 0.25
+    fauna_trait_variation: float = 0.25
+    fauna_mutation_scale: float = 0.05
+    fauna_vigilance: float = 0.5
+    fauna_fecundity: float = 0.6
+    # How much harder a wary animal is to catch than a placid one. This is
+    # what turns hunting pressure into selection rather than subtraction.
+    fauna_vigilance_weight: float = 2.0
+    fauna_meat_per_energy: float = 0.55
+
     maximum_energy: float = 100.0
     initial_energy_minimum: float = 45.0
     initial_energy_maximum: float = 80.0
@@ -49,6 +77,10 @@ class SimulationConfig:
     care_amount: float = 1.5
 
     starvation_damage: float = 4.0
+    # How far nutrition has to fall before a body starts paying for it. At
+    # zero the damage is the old cliff at spent energy and nothing warns a
+    # population before it collapses.
+    malnutrition_threshold: float = 0.30
     health_recovery: float = 0.15
     health_recovery_energy_cost: float = 0.08
     aging_damage_per_year: float = 1.8
@@ -153,11 +185,21 @@ class SimulationConfig:
     material_gather_weight: float = 0.8
     material_attraction_weight: float = 0.35
 
+    # Hunting. An attempt costs energy whether or not it succeeds, which is
+    # what makes it a gamble against gathering rather than a better version
+    # of it, and what leaves room for it to be the wrong choice.
+    hunt_weight: float = 2.6
+    hunt_energy_cost: float = 0.8
+    hunt_success_base: float = 0.55
+
     research_weight: float = 1.4
     research_energy_minimum: float = 55.0
     research_energy_cost: float = 2.0
     research_material_cost: float = 0.5
-    seafaring_discovery_threshold: float = 8.0
+    # Base work a discovery takes. Each technique scales it by its own
+    # effort, so this is one knob for how hard the world is to work out
+    # rather than a threshold belonging to any single skill.
+    discovery_threshold: float = 8.0
     research_gain_minimum: float = 0.5
     research_gain_maximum: float = 1.5
     teaching_weight: float = 1.2
@@ -206,15 +248,56 @@ class SimulationConfig:
     # brains were heritable; that is the arm every experiment compares to.
     neural_brains_enabled: bool = True
     neural_hidden_units: int = 6
-    neural_output_weight: float = 0.35
+    # How loudly the brain speaks in a decision. It was 0.35, which put the
+    # whole network at about 0.05 utility units against a decision_noise of
+    # 0.20 — the brain was quieter than the dice, and on/off runs were
+    # indistinguishable. Raised so that a brain which has *learned*
+    # something can be heard; a newborn's inherited weights are small enough
+    # that it still starts out roughly as noisy as it always was.
+    neural_output_weight: float = 1.2
     neural_founder_scale: float = 0.12
     neural_mutation_rate: float = 0.06
     neural_mutation_scale: float = 0.09
     neural_weight_limit: float = 3.0
+    # Lifetime plasticity. Inherited weights are where a brain starts; this
+    # is how far it can move within one life. Changing your own mind costs
+    # energy, because a free one is strictly dominant and would be taken by
+    # everybody for no reason.
+    #
+    # **Off by default, on measured evidence.** Six seeds in a scarce world:
+    # no learning finished at 23.7 people, learning at 17.8, and learning
+    # with the energy price removed at 21.7 — at best neutral, at worst a
+    # quarter of the population. The mechanism is correct and tested and the
+    # world may simply not reward it yet (see C4 in the design checklist),
+    # but shipping it on would be shipping decoration as fact. Raise it to
+    # experiment; the interesting question is what has to become true about
+    # the world before it starts paying.
+    plasticity_rate: float = 0.0
+    plasticity_energy_cost: float = 0.02
+    plasticity_limit: float = 1.5
+    # Remembering places. At capacity zero nobody remembers anywhere and
+    # foraging is the pure local gradient it was before.
+    place_memory_capacity: int = 4
+    place_memory_half_life_years: float = 2.0
+    place_return_weight: float = 1.6
+
     language_enabled: bool = True
     language_invention_rate: float = 0.04
     language_adoption_rate: float = 0.8
     language_mutation_rate: float = 0.002
+    # How much credit a freshly taken-up word gets. At one, adoption is a
+    # voter process: whatever you heard last wins, everyone overwrites
+    # everyone, and no form ever becomes common enough to be a language.
+    language_initial_confidence: int = 2
+    # Someone who has no word at all has nothing to lose by taking yours.
+    # Replacing a form you already use is a different matter, so the two are
+    # not equally likely; this is how much readier the empty case is.
+    language_naive_adoption_bonus: float = 0.6
+    # Whether a caregiver's speech reaches the dependent they are feeding.
+    # This is the channel that carries a language across a generation: at
+    # zero, every child starts mute and re-invents, and vocabulary cannot
+    # accumulate past a single lifetime.
+    language_caregiver_transmission: bool = True
     social_success_memory_years: float = 1.0
 
     # Pair bonding. Courtship is one-sided with consent, so a couple pays the
@@ -250,13 +333,17 @@ class SimulationConfig:
             "event_log_capacity",
             "death_record_capacity",
             "neural_hidden_units",
+            "language_initial_confidence",
+            "place_memory_capacity",
         )
         for name in integer_fields:
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"{name} must be an integer")
         for name in ("wrap_world", "materials_renewable",
-                     "language_enabled", "neural_brains_enabled"):
+                     "language_enabled", "neural_brains_enabled",
+                     "language_caregiver_transmission",
+                     "fauna_enabled"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
         for item in fields(self):
@@ -268,6 +355,8 @@ class SimulationConfig:
                     "materials_renewable",
                     "language_enabled",
                     "neural_brains_enabled",
+                    "language_caregiver_transmission",
+                    "fauna_enabled",
                 )
                 and (
                     not isinstance(value, (int, float))
@@ -296,6 +385,9 @@ class SimulationConfig:
             "material_cell_capacity",
             "material_inventory_capacity",
             "material_harvest_amount",
+            "fauna_forage_energy",
+            "fauna_energy_maximum",
+            "fauna_maximum_age",
             "vessel_durability",
             "exploratory_temperature",
             "learned_preference_limit",
@@ -331,6 +423,7 @@ class SimulationConfig:
             "food_spoilage_rate_per_year",
             "initial_inventory",
             "starvation_damage",
+            "malnutrition_threshold",
             "health_recovery",
             "health_recovery_energy_cost",
             "aging_damage_per_year",
@@ -381,11 +474,30 @@ class SimulationConfig:
             "rest_utility",
             "material_gather_weight",
             "material_attraction_weight",
+            "hunt_weight",
+            "hunt_energy_cost",
+            "hunt_success_base",
+            "initial_fauna_density",
+            "fauna_metabolism",
+            "fauna_graze_amount",
+            "fauna_birth_energy",
+            "fauna_reproduction_energy",
+            "fauna_reproduction_cost",
+            "fauna_birth_rate",
+            "fauna_maturity_age",
+            "fauna_mortality_rate_per_year",
+            "fauna_wander_rate",
+            "fauna_trait_variation",
+            "fauna_mutation_scale",
+            "fauna_vigilance",
+            "fauna_fecundity",
+            "fauna_vigilance_weight",
+            "fauna_meat_per_energy",
             "research_weight",
             "research_energy_minimum",
             "research_energy_cost",
             "research_material_cost",
-            "seafaring_discovery_threshold",
+            "discovery_threshold",
             "research_gain_minimum",
             "research_gain_maximum",
             "teaching_weight",
@@ -434,6 +546,13 @@ class SimulationConfig:
             "language_invention_rate",
             "language_adoption_rate",
             "language_mutation_rate",
+            "language_naive_adoption_bonus",
+            "plasticity_rate",
+            "plasticity_energy_cost",
+            "plasticity_limit",
+            "place_memory_capacity",
+            "place_memory_half_life_years",
+            "place_return_weight",
             "courtship_weight",
             "courtship_energy_cost",
             "bond_movement_weight",
@@ -472,6 +591,13 @@ class SimulationConfig:
             "minimum_reproductive_body_condition",
             "juvenile_metabolism_fraction",
             "juvenile_capability_floor",
+            "malnutrition_threshold",
+            "fauna_wander_rate",
+            "fauna_trait_variation",
+            "fauna_vigilance",
+            "fauna_fecundity",
+            "fauna_birth_rate",
+            "hunt_success_base",
             "founder_development_minimum",
             "founder_development_maximum",
             "minimum_development_health_fraction",

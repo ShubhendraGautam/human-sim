@@ -115,6 +115,7 @@ class ServiceContractTests(unittest.TestCase):
             "last_action_success",
             "infection_stage",
             "knows_seafaring",
+            "known_techniques",
             "vessel_durability",
         }
         self.assertEqual(set(frame["agents"]), expected_columns)

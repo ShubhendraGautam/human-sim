@@ -48,7 +48,7 @@ class ScenarioTests(unittest.TestCase):
             initial_energy_maximum=100.0,
             research_material_cost=0.1,
             research_energy_cost=0.1,
-            seafaring_discovery_threshold=0.01,
+            discovery_threshold=0.01,
             vessel_material_cost=1.0,
             vessel_energy_cost=1.0,
             vessel_durability=5.0,
@@ -104,7 +104,7 @@ class ScenarioTests(unittest.TestCase):
         snapshot = simulation.snapshot()
 
         json.dumps(snapshot)
-        self.assertEqual(snapshot["schema_version"], 3)
+        self.assertEqual(snapshot["schema_version"], 4)
         self.assertEqual(snapshot["snapshot_kind"], "visualization")
         self.assertIn("config", snapshot)
         self.assertIn("config_schema_version", snapshot)

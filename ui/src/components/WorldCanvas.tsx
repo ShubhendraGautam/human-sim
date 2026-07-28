@@ -53,6 +53,7 @@ export interface CanvasLayerSettings {
   materials: boolean;
   disease: boolean;
   agents: boolean;
+  fauna: boolean;
   vessels: boolean;
   colorMode: AgentColorMode;
 }
@@ -624,6 +625,37 @@ export function WorldCanvas({
             patch,
             patch,
           );
+        }
+      }
+
+      // Animals are drawn under people: a person standing in a herd should
+      // still be the thing you can see and click.
+      if (layers.fauna && frame.fauna !== undefined) {
+        const herd = frame.fauna;
+        if (detail === "aggregate") {
+          const patch = Math.max(1, Math.ceil(cellScale));
+          context.fillStyle = "rgba(150, 190, 128, 0.45)";
+          for (let index = 0; index < herd.id.length; index += 1) {
+            context.fillRect(
+              projection.originX + (herd.x[index] ?? 0) * cellScale,
+              projection.originY + (herd.y[index] ?? 0) * cellScale,
+              patch,
+              patch,
+            );
+          }
+        } else {
+          const radius = clamp(cellScale * 0.13, 0.9, 2.2);
+          context.fillStyle = "rgba(150, 190, 128, 0.8)";
+          context.beginPath();
+          for (let index = 0; index < herd.id.length; index += 1) {
+            const x =
+              projection.originX + ((herd.x[index] ?? 0) + 0.5) * cellScale;
+            const y =
+              projection.originY + ((herd.y[index] ?? 0) + 0.5) * cellScale;
+            context.moveTo(x + radius, y);
+            context.arc(x, y, radius, 0, Math.PI * 2);
+          }
+          context.fill();
         }
       }
 

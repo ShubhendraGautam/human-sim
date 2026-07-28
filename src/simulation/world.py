@@ -49,6 +49,8 @@ class World:
         "last_material_harvested",
         "last_material_regenerated",
         "last_seasonal_productivity",
+        "last_row_factors",
+        "_coast",
     )
 
     def __init__(
@@ -188,6 +190,13 @@ class World:
         self.last_material_harvested = 0.0
         self.last_material_regenerated = 0.0
         self.last_seasonal_productivity = 1.0
+        # The season as each row of the map is currently experiencing it.
+        # Cached from the last regeneration so an agent can feel the season
+        # where it is standing without anyone recomputing it per agent.
+        self.last_row_factors: List[float] = [1.0] * config.height
+        # Terrain is fixed for a run, so where the coast is can be settled
+        # once instead of rediscovered by every agent that looks around.
+        self._coast = self._build_coast_mask()
 
     def normalize(self, x: int, y: int) -> Optional[Tuple[int, int]]:
         if self.config.wrap_world:
@@ -217,13 +226,34 @@ class World:
         return self.terrain[self.cell_index(x, y)] == Terrain.SEA
 
     def is_coast(self, x: int, y: int) -> bool:
-        if not self.has_sea or self.is_sea(x, y):
-            return False
-        for offset_x, offset_y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            index = self.try_cell_index(x + offset_x, y + offset_y)
-            if index is not None and self.terrain[index] == Terrain.SEA:
-                return True
-        return False
+        """Whether this land cell touches open water.
+
+        Read from a mask built once when the world is made. Terrain never
+        changes during a run, so recomputing it was four bounds-checked
+        lookups per asking — affordable when only research asked, and not
+        once every agent's perception asks every tick.
+        """
+
+        index = self.try_cell_index(x, y)
+        return index is not None and bool(self._coast[index])
+
+    def _build_coast_mask(self) -> array:
+        mask = array("b", bytes(self.config.width * self.config.height))
+        if not self.has_sea:
+            return mask
+        for index in range(len(mask)):
+            if self.terrain[index] == Terrain.SEA:
+                continue
+            x, y = self.coordinates(index)
+            for offset_x, offset_y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                neighbour = self.try_cell_index(x + offset_x, y + offset_y)
+                if (
+                    neighbour is not None
+                    and self.terrain[neighbour] == Terrain.SEA
+                ):
+                    mask[index] = 1
+                    break
+        return mask
 
     def adjacent_sea_destinations(
         self,
@@ -271,6 +301,44 @@ class World:
         layer[index] -= amount
         return amount
 
+    def food_fraction(self, x: int, y: int) -> float:
+        """How full this cell is, as a share of what it could hold."""
+
+        index = self.try_cell_index(x, y)
+        if index is None:
+            return 0.0
+        capacity = self.capacity[index]
+        return self.resources[index] / capacity if capacity > 0.0 else 0.0
+
+    def food_gradient(self, x: int, y: int) -> float:
+        """How much better the best adjacent cell is than this one.
+
+        Four orthogonal neighbours only. This is a sense rather than a plan:
+        it says which way the ground improves, not where to go, and it costs
+        four array reads instead of the wider search movement uses.
+        """
+
+        here = self.food_fraction(x, y)
+        best = here
+        for offset_x, offset_y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            index = self.try_cell_index(x + offset_x, y + offset_y)
+            if index is None:
+                continue
+            capacity = self.capacity[index]
+            if capacity <= 0.0:
+                continue
+            value = self.resources[index] / capacity
+            if value > best:
+                best = value
+        return best - here
+
+    def season_at(self, y: int) -> float:
+        """The season this row is in, centred on zero."""
+
+        if 0 <= y < len(self.last_row_factors):
+            return self.last_row_factors[y] - 1.0
+        return 0.0
+
     def begin_tick(self) -> None:
         self.last_food_harvested = 0.0
         self.last_food_regenerated = 0.0
@@ -288,6 +356,7 @@ class World:
             elapsed_years,
             row_factors,
         )
+        self.last_row_factors = list(row_factors)
         self.last_seasonal_productivity = self._seasonal_mean(row_factors)
         if self.config.materials_renewable:
             self.last_material_regenerated = self._grow_layer(

@@ -252,7 +252,7 @@ export function PersonInspector({
   const isStale = detail.tick !== frame.tick;
   const researchThreshold = configNumber(
     manifest,
-    "seafaring_discovery_threshold",
+    "discovery_threshold",
     1,
   );
   const maximumVesselDurability = configNumber(

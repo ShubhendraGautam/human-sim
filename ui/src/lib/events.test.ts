@@ -18,8 +18,8 @@ function event(
 
 describe("describeEvent", () => {
   it("names both people when the act lands on someone", () => {
-    expect(describeEvent(event("teach_seafaring", 4, ["7", "9"]))).toBe(
-      "#7 taught seafaring to #9",
+    expect(describeEvent(event("teach", 4, ["7", "9"]))).toBe(
+      "#7 taught something to #9",
     );
     expect(describeEvent(event("share", 4, ["7", "9"]))).toBe(
       "#7 shared food with #9",
@@ -50,11 +50,11 @@ describe("describeEvent", () => {
 describe("event importance", () => {
   it("treats rare turning points as landmarks", () => {
     for (const kind of [
-      "invent_seafaring",
+      "invent",
       "build_vessel",
       "landfall",
       "drowned",
-      "teach_seafaring",
+      "teach",
     ]) {
       expect(eventImportance(kind)).toBe("landmark");
     }

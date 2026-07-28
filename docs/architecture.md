@@ -72,8 +72,55 @@ earn its existence through the same utility machinery as any other action:
 if nothing in the environment makes shelter pay for itself, nobody builds.
 
 `Simulation.agents` is the registry's own person store rather than a copy of
-it, so the population and the registry cannot drift apart. Registration and
-removal go through the registry; `validate_state` checks that they did.
+it, so the population and the registry cannot drift apart. `Simulation.fauna`
+is the same arrangement for animals. Registration and removal go through the
+registry; `validate_state` checks that they did.
+
+### `src.simulation.fauna`
+
+Grazing animals, and the only kind besides people that the registry currently
+holds. The module knows nothing about people: an animal eats, moves toward
+food, breeds when fed and near another grown animal, ages, and dies. What
+makes a herd matter to a population is that it draws on the same food layer
+and that its bodies carry energy — both consequences of that behaviour rather
+than rules about humans. Being hunted happens on the hunter's side, in the
+engine.
+
+Intake falls away as a patch empties. This is load-bearing rather than
+decorative: growth in `world` is a share of the *deficit*, so bare ground is
+where the world regrows fastest, and a grazer able to take the last blade
+would sit on top of maximum regrowth and take all of it forever. With the
+response, thin grass feeds fewer animals and the grass comes back.
+
+Cost is the binding constraint here, because animals can outnumber people.
+Every decision reads only the animal's own cell and its four neighbours, so
+per-tick cost is constant per animal.
+
+### `src.simulation.memory`
+
+A bounded store of places a person found worth something, and when. Movement
+was otherwise pure local gradient — an agent compared the cells it could see
+and stepped toward the best, with no way to hold the thought that there was
+food over the ridge last spring. Capacity is fixed and memories fade, because
+an unbounded store would grow with how long someone lives and a memory that
+never faded would send people confidently to places that no longer exist.
+
+A place is only recorded where the agent stood and took something out of the
+ground, so the store is its own experience rather than a readout of the map.
+Arriving and finding it bare deletes the entry.
+
+### `src.simulation.knowledge`
+
+What can be learned, as a table rather than a branch. A technique is an
+affordance that makes it thinkable, an amount of work, and a change to what
+its carrier can do. The effects vocabulary is deliberately narrow —
+multipliers on capacities the engine already has, plus one gate on open water
+— so that adding a row cannot smuggle in scripted behaviour. Anything needing
+genuinely new behaviour has to earn it in the engine, in the open.
+
+Discovery and teaching in the engine are written against no technique in
+particular. `Agent.knows_seafaring` survives as a view onto bit zero so the
+service contract and UI keep working.
 
 ### `src.simulation.life_history` and `src.simulation.health`
 
@@ -140,18 +187,21 @@ drowns beside an intact hull nor survives one that has broken up.
 ### `src.simulation.engine`
 
 One `Simulation` owns all mutable state, including its pseudorandom generator.
-A tick has seven phases:
+A tick has eight phases:
 
 1. Reset interval flow counters and advance local infection stages/exposure.
 2. Advance body condition, development, metabolism, gestation, frailty, and
    mortality; remove deaths through indexed cleanup.
 3. Advance pregnancies and births, then rebuild the spatial index.
-4. Let each living agent select one action from bounded local information.
-5. Match disjoint pairs among local agents who independently chose
+4. Advance the herd — graze, move, breed, die — and rebuild the index again,
+   so a hunter chooses against the herd as it actually stands rather than
+   where it was last tick.
+5. Let each living agent select one action from bounded local information.
+6. Match disjoint pairs among local agents who independently chose
    reproductive intent, then resolve all actions with authoritative locality
    and resource checks.
-6. Regenerate environmental resources from productivity and season.
-7. Rebuild occupancy and sample observer metrics when configured.
+7. Regenerate environmental resources from productivity and season.
+8. Rebuild occupancy and sample observer metrics when configured.
 
 Decisions are created from a consistent beginning-of-action-phase view.
 Resolution order is randomized to prevent permanent low-ID priority while
@@ -159,6 +209,34 @@ remaining reproducible.
 
 The engine module owns causal state only. Read-only projections live in
 `src.simulation.observation`.
+
+### Minds
+
+Three separate things, deliberately not merged:
+
+- **`Agent.network`** — what a person was born with. Recombined from both
+  parents at conception, mutated, then fixed for life.
+- **`BrainState.plastic`** — what they worked out for themselves. A learned
+  adjustment to the network's output layer, moved by the outcome of each
+  action and credited to the hidden units that were active when the choice
+  was made, so it expresses "this action, in circumstances like these"
+  rather than the context-free preference the habit vector already held.
+- **`Agent.places`** — where they have been and what it was worth.
+
+Keeping the learned overlay on `BrainState` rather than on the network is the
+Weismann barrier for minds. `BrainState` is created fresh for every child and
+is never an input to `neural.inherit`, so lifetime experience cannot become
+heritable by accident. A test maxes out a parent's overlay and asserts the
+same recombination comes out unchanged.
+
+`brain.Surroundings` is what the world looks like from where someone is
+standing. Every field is a value the deciding code already computes, passed
+in rather than fetched, so a brain sees exactly what the utility rules see
+and cannot acquire a spatial query nobody budgeted for. Before it existed,
+thirteen of fourteen senses were the body reporting on itself: a brain could
+feel hungry but could not perceive that the ground was bare, that it was
+better one step over, or that winter was coming, so every one of those
+judgements had to be made for it by a constant.
 
 ### `src.simulation.observation`
 

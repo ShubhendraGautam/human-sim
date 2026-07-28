@@ -131,7 +131,18 @@ export interface AgentColumns {
   last_action_success: number[];
   infection_stage: InfectionStage[];
   knows_seafaring: boolean[];
+  /** Bit per technique; see the manifest's `techniques` table. */
+  known_techniques: number[];
   vessel_durability: number[];
+}
+
+/** Animals, as their own payload: a different kind of thing to a person. */
+export interface FaunaColumns {
+  id: number[];
+  x: number[];
+  y: number[];
+  energy: number[];
+  vigilance: number[];
 }
 
 export interface ResourceLayers {
@@ -188,6 +199,31 @@ export interface SimulationMetrics {
   mean_social_connections: number;
   mean_trust: number;
   isolated_population: number;
+  mean_vocabulary: number;
+  /** Agreement among people close enough to actually meet. */
+  language_agreement: number;
+  /** The same across the whole population; low when dialects diverge. */
+  language_global_agreement: number;
+  distinct_words: number;
+  speaking_population: number;
+  coinages: number;
+  fauna_population: number;
+  fauna_mean_energy: number;
+  fauna_mean_vigilance: number;
+  fauna_mean_age: number;
+  fauna_born: number;
+  fauna_died: number;
+  fauna_grazed: number;
+  hunts: number;
+  hunt_kills: number;
+  meat_gained: number;
+  /** Mean absolute weight of the inherited network. */
+  mean_network_magnitude: number;
+  /** Mean absolute weight of what people have learned within their lives. */
+  mean_plasticity: number;
+  /** Spread of inherited policies; zero means the population are clones. */
+  policy_diversity: number;
+  mean_remembered_places: number;
   age_bands: Record<string, number>;
   country_population: Record<string, number>;
   belief_population: Record<string, number>;
@@ -206,6 +242,7 @@ export interface RunFrame extends ProtocolEnvelope {
   year: number;
   metrics: SimulationMetrics;
   agents: AgentColumns;
+  fauna: FaunaColumns;
   resources?: ResourceLayers;
 }
 
@@ -345,6 +382,7 @@ export interface AgentDetail {
   technology: {
     research_progress: number;
     knows_seafaring: boolean;
+    known_techniques: string[];
     vessel_durability: number;
     voyage_dx: number;
     voyage_dy: number;

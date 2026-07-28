@@ -23,6 +23,7 @@ const emptyColumns: AgentColumns = {
   last_action_success: [],
   infection_stage: [],
   knows_seafaring: [],
+  known_techniques: [],
   vessel_durability: [],
 };
 

@@ -167,6 +167,7 @@ export default function App() {
     materials: false,
     disease: true,
     agents: true,
+    fauna: true,
     vessels: true,
     colorMode: "country",
   });

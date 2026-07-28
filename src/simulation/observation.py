@@ -13,8 +13,10 @@ unaffected.
 import math
 from collections import Counter
 from statistics import fmean
-from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Sequence, Set, Tuple
 
+from . import knowledge
+from . import language
 from .config import CONFIG_SCHEMA_VERSION
 from .entities import INERT_KINDS, EntityKind
 from .genetics import GENOME_SCHEMA_VERSION, LOCUS_COUNT
@@ -144,6 +146,19 @@ def measure(simulation: "Simulation") -> Metrics:
         isolated_population = sum(
             count == 0 for count in connection_counts
         )
+        (
+            mean_network_magnitude,
+            mean_plasticity,
+            policy_diversity,
+            mean_remembered_places,
+        ) = _minds(agents)
+        (
+            mean_vocabulary,
+            language_agreement,
+            language_global_agreement,
+            distinct_words,
+            speaking_population,
+        ) = _language(agents)
     else:
         mean_energy = 0.0
         mean_health = 0.0
@@ -172,6 +187,22 @@ def measure(simulation: "Simulation") -> Metrics:
         mean_social_connections = 0.0
         mean_trust = 0.0
         isolated_population = 0
+        mean_network_magnitude = 0.0
+        mean_plasticity = 0.0
+        policy_diversity = 0.0
+        mean_remembered_places = 0.0
+        mean_vocabulary = 0.0
+        language_agreement = 0.0
+        language_global_agreement = 0.0
+        distinct_words = 0
+        speaking_population = 0
+
+    (
+        fauna_population,
+        fauna_mean_energy,
+        fauna_mean_vigilance,
+        fauna_mean_age,
+    ) = simulation.herd.statistics()
 
     total_capacity = sum(simulation.world.capacity)
     total_resources = simulation.world.total_resources()
@@ -245,6 +276,152 @@ def measure(simulation: "Simulation") -> Metrics:
         mean_social_connections=mean_social_connections,
         mean_trust=mean_trust,
         isolated_population=isolated_population,
+        mean_vocabulary=mean_vocabulary,
+        language_agreement=language_agreement,
+        language_global_agreement=language_global_agreement,
+        distinct_words=distinct_words,
+        speaking_population=speaking_population,
+        coinages=simulation.total_coinages,
+        fauna_population=fauna_population,
+        fauna_mean_energy=fauna_mean_energy,
+        fauna_mean_vigilance=fauna_mean_vigilance,
+        fauna_mean_age=fauna_mean_age,
+        fauna_born=simulation.herd.last_born,
+        fauna_died=simulation.herd.last_died,
+        fauna_grazed=simulation.herd.last_grazed,
+        hunts=simulation.total_hunts,
+        hunt_kills=simulation.total_hunt_kills,
+        meat_gained=simulation._last_meat_gained,
+        mean_network_magnitude=mean_network_magnitude,
+        mean_plasticity=mean_plasticity,
+        policy_diversity=policy_diversity,
+        mean_remembered_places=mean_remembered_places,
+    )
+
+
+def _minds(agents: Sequence["Agent"]) -> Tuple[float, float, float, float]:
+    """What the population's brains look like, without judging them.
+
+    ``policy_diversity`` is the mean spread of inherited output weights
+    across the population. It answers the question the design notes ask of
+    any self-modification: whether everyone converged on one way of
+    behaving, which would say the world has a single problem, or whether
+    distinct policies coexist.
+    """
+
+    if not agents:
+        return (0.0, 0.0, 0.0, 0.0)
+    magnitude = fmean(agent.network.magnitude for agent in agents)
+    plasticity = fmean(
+        agent.brain.plasticity_magnitude for agent in agents
+    )
+    places = fmean(
+        0 if agent.places is None else len(agent.places)
+        for agent in agents
+    )
+    # Spread of the output layer, averaged over its entries. A population of
+    # clones scores zero however strong its opinions are.
+    first = agents[0].network
+    spread = 0.0
+    entries = 0
+    for action in range(first.outputs):
+        for unit in range(first.units):
+            column = [
+                agent.network.output[action][unit] for agent in agents
+            ]
+            if len(column) > 1:
+                mean = fmean(column)
+                spread += (
+                    sum((value - mean) ** 2 for value in column)
+                    / len(column)
+                ) ** 0.5
+            entries += 1
+    return (
+        magnitude,
+        plasticity,
+        spread / entries if entries else 0.0,
+        places,
+    )
+
+
+#: How wide a patch of world counts as "people who talk to each other", for
+#: reporting only. Nothing in the engine reads this; it is the window an
+#: observer looks through, chosen to be a few steps across so that it spans
+#: the people an agent actually meets rather than the whole map.
+NEIGHBOURHOOD_SPAN = 4
+
+
+def _language(
+    agents: Sequence["Agent"],
+) -> Tuple[float, float, float, int, int]:
+    """How much of a shared language the population actually has.
+
+    Two agreement numbers, because they answer different questions and a
+    single one is actively misleading.
+
+    *Local* agreement is the share of speakers in the same patch of world who
+    hold the same form, which is what "these people have a language" means.
+    *Global* agreement asks the same of the whole population at once.
+
+    The gap between them is the interesting quantity. A population split into
+    dialects that each agree internally scores high locally and low globally,
+    and that is a success, not a failure — it is exactly what the mechanism
+    should produce where contact is thin. Reporting only the global number
+    cannot tell that case apart from everyone babbling separately, which is
+    why both are here.
+
+    Neither is pairwise: pairwise is quadratic, and the question worth asking
+    is whether a form has become common, not how any two individuals compare.
+    """
+
+    global_totals = 0
+    global_top = 0
+    local_totals = 0
+    local_top = 0
+    distinct: Set[int] = set()
+    vocabulary = 0
+    speaking = 0
+    for meaning in range(len(language.MEANINGS)):
+        forms: Counter = Counter()
+        patches: Dict[Tuple[int, int], Counter] = {}
+        for agent in agents:
+            word = agent.lexicon.words[meaning]
+            if word == language.NO_WORD:
+                continue
+            forms[word] += 1
+            patch = (
+                agent.x // NEIGHBOURHOOD_SPAN,
+                agent.y // NEIGHBOURHOOD_SPAN,
+            )
+            bucket = patches.get(patch)
+            if bucket is None:
+                bucket = patches[patch] = Counter()
+            bucket[word] += 1
+        if not forms:
+            continue
+        distinct.update(forms)
+        global_totals += sum(forms.values())
+        global_top += forms.most_common(1)[0][1]
+        for bucket in patches.values():
+            held = sum(bucket.values())
+            # One speaker in a patch agrees with nobody; counting them as
+            # perfect agreement would report a scattered population as
+            # having the most unanimous language in the world.
+            if held < 2:
+                continue
+            local_totals += held
+            local_top += bucket.most_common(1)[0][1]
+    for agent in agents:
+        size = agent.lexicon.size
+        vocabulary += size
+        if size:
+            speaking += 1
+    return (
+        vocabulary / len(agents) if agents else 0.0,
+        local_top / local_totals if local_totals else 0.0,
+        global_top / global_totals if global_totals else 0.0,
+        len(distinct),
+        speaking,
     )
 
 
@@ -274,7 +451,7 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
             agent.birth_country_id,
             agent.belief_id,
             round(agent.research_progress, 8),
-            agent.knows_seafaring,
+            agent.known_techniques,
             round(agent.vessel_durability, 8),
             agent.voyage_dx,
             agent.voyage_dy,
@@ -396,6 +573,30 @@ def snapshot(
                 key=lambda item: item.gestational_parent_id,
             )
         ],
+        "techniques": [
+            {
+                "index": technique.index,
+                "name": technique.name,
+                "affordance": technique.affordance.name.lower(),
+            }
+            for technique in knowledge.TECHNIQUES
+        ],
+    }
+    # Animals are their own columnar payload rather than extra columns on
+    # the agent one: they are a different kind of thing, they come and go at
+    # a different rate, and a UI that only draws people should not have to
+    # download a herd to find that out.
+    fauna_ordered = sorted(
+        simulation.fauna.values(),
+        key=lambda animal: animal.id,
+    )
+    result["fauna"] = {
+        "id": [animal.id for animal in fauna_ordered],
+        "x": [animal.x for animal in fauna_ordered],
+        "y": [animal.y for animal in fauna_ordered],
+        "age": [animal.age for animal in fauna_ordered],
+        "energy": [animal.energy for animal in fauna_ordered],
+        "vigilance": [animal.vigilance for animal in fauna_ordered],
     }
     if include_world:
         result["world"] = {
@@ -565,6 +766,9 @@ def snapshot(
             ],
             "knows_seafaring": [
                 agent.knows_seafaring for agent in ordered
+            ],
+            "known_techniques": [
+                agent.known_techniques for agent in ordered
             ],
             "vessel_durability": [
                 agent.vessel_durability for agent in ordered

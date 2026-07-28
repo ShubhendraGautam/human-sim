@@ -145,7 +145,13 @@ class PopulationIsRegisteredTest(unittest.TestCase):
             simulation.agents,
             simulation.entities.of_kind(EntityKind.PERSON),
         )
-        self.assertEqual(len(simulation.entities), len(simulation.agents))
+        # The registry holds animals too, so it is larger than the
+        # population. What must hold is that people are exactly its person
+        # bucket and nothing has landed in the wrong one.
+        self.assertEqual(
+            len(simulation.entities),
+            len(simulation.agents) + len(simulation.fauna),
+        )
 
     def test_people_are_registered_as_people(self) -> None:
         simulation = self._simulation()
@@ -164,7 +170,10 @@ class PopulationIsRegisteredTest(unittest.TestCase):
 
         self.assertGreater(simulation.total_births, 0)
         self.assertGreater(simulation.total_deaths, 0)
-        self.assertEqual(len(simulation.entities), len(simulation.agents))
+        self.assertEqual(
+            len(simulation.entities),
+            len(simulation.agents) + len(simulation.fauna),
+        )
         # Every identity ever issued was issued once, to one thing.
         self.assertGreaterEqual(
             simulation.entities.claimed_ids,
@@ -220,7 +229,16 @@ class SpatialIndexKindTest(unittest.TestCase):
         }
 
         self.assertEqual(indexed, set(simulation.agents))
-        for kind in (EntityKind.FAUNA, EntityKind.FLORA, EntityKind.ARTIFACT):
+        animals = world.occupants_of_kind(EntityKind.FAUNA)
+        indexed_animals = {
+            entity_id
+            for entity_ids in animals.values()
+            for entity_id in entity_ids
+        }
+        self.assertEqual(indexed_animals, set(simulation.fauna))
+        # No animal was filed as a person, and vice versa.
+        self.assertFalse(indexed & indexed_animals)
+        for kind in (EntityKind.FLORA, EntityKind.ARTIFACT):
             self.assertEqual(world.occupants_of_kind(kind), {})
 
     def test_other_kinds_do_not_appear_to_local_perception(self) -> None:

@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass
 from typing import Dict, Mapping, Optional, Protocol, Tuple
 
+from src.simulation import knowledge
 from src.simulation import language
 from src.simulation import (
     CONFIG_SCHEMA_VERSION,
@@ -34,6 +35,9 @@ class BackendFrame:
     year: float
     metrics: Mapping[str, object]
     agents: Mapping[str, object]
+    # Animals are their own payload rather than more agent columns: they
+    # are a different kind of thing and they come and go far faster.
+    fauna: Mapping[str, object]
     resources: Optional[Mapping[str, object]]
 
 
@@ -192,9 +196,23 @@ class PythonSimulationBackend:
             "knows_seafaring": [
                 agent.knows_seafaring for agent in ordered
             ],
+            "known_techniques": [
+                agent.known_techniques for agent in ordered
+            ],
             "vessel_durability": [
                 agent.vessel_durability for agent in ordered
             ],
+        }
+        herd = sorted(
+            simulation.fauna.values(),
+            key=lambda animal: animal.id,
+        )
+        fauna = {
+            "id": [animal.id for animal in herd],
+            "x": [animal.x for animal in herd],
+            "y": [animal.y for animal in herd],
+            "energy": [animal.energy for animal in herd],
+            "vigilance": [animal.vigilance for animal in herd],
         }
         resources: Optional[Mapping[str, object]] = None
         if include_resources:
@@ -207,6 +225,7 @@ class PythonSimulationBackend:
             year=simulation.year,
             metrics=_current_metrics(simulation),
             agents=agents,
+            fauna=fauna,
             resources=resources,
         )
 
@@ -376,6 +395,9 @@ class PythonSimulationBackend:
             "technology": {
                 "research_progress": agent.research_progress,
                 "knows_seafaring": agent.knows_seafaring,
+                "known_techniques": list(
+                    knowledge.names(agent.known_techniques)
+                ),
                 "vessel_durability": agent.vessel_durability,
                 "voyage_dx": agent.voyage_dx,
                 "voyage_dy": agent.voyage_dy,

@@ -29,7 +29,7 @@ Three properties are load-bearing and worth stating plainly:
 
 import math
 import random
-from typing import List, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 #: What a brain can perceive.
 #:
@@ -37,6 +37,12 @@ from typing import List, Sequence
 #: Nothing here is global knowledge, and nothing is a summary the engine
 #: computes for the agent's benefit — a network that could see the population
 #: total would be reading the observer's notes rather than its own senses.
+#: The first thirteen are the body reporting on itself. The rest are the
+#: world, and they were the thing missing: a brain that can only feel its own
+#: hunger has nothing to have a policy *about*. It cannot notice that the
+#: ground here is bare, that it is better one step over, that winter is
+#: coming, or that there is an animal within reach — so every one of those
+#: judgements had to be made for it by a constant in the config.
 SENSE_NAMES = (
     "bias",
     "energy",
@@ -52,6 +58,13 @@ SENSE_NAMES = (
     "knows_seafaring",
     "has_vessel",
     "research",
+    "food_here",
+    "food_nearby",
+    "material_here",
+    "season",
+    "animal_near",
+    "on_coast",
+    "remembered_place",
 )
 
 SENSES = len(SENSE_NAMES)
@@ -90,7 +103,25 @@ class Network:
             [0.0] * units for _ in range(outputs)
         ]
 
-    def evaluate(self, senses: Sequence[float]) -> List[float]:
+    def respond(
+        self,
+        senses: Sequence[float],
+        overlay: Optional[List[List[float]]] = None,
+    ) -> Tuple[List[float], List[float]]:
+        """Score every action, and report the hidden state that produced it.
+
+        The activations come back because lifetime learning needs to know
+        *which* internal state earned the outcome, not merely that something
+        did. Crediting the whole brain for one result would make learning a
+        wash; crediting the units that were actually active is what lets a
+        person end up preferring an action in the circumstances where it
+        works rather than everywhere.
+
+        ``overlay`` is the learned adjustment to the output layer. It is
+        added rather than blended, and it lives outside this object, so what
+        a person was born with stays legible next to what they picked up.
+        """
+
         scores = [0.0] * self.outputs
         activations = [0.0] * self.units
         for unit in range(self.units):
@@ -101,11 +132,20 @@ class Network:
             activations[unit] = squash(total)
         for action in range(self.outputs):
             weights = self.output[action]
+            learned = overlay[action] if overlay is not None else None
             total = 0.0
             for unit in range(self.units):
-                total += weights[unit] * activations[unit]
+                weight = weights[unit]
+                if learned is not None:
+                    weight += learned[unit]
+                total += weight * activations[unit]
             scores[action] = squash(total)
-        return scores
+        return scores, activations
+
+    def evaluate(self, senses: Sequence[float]) -> List[float]:
+        """Scores only, for callers that do not learn from the result."""
+
+        return self.respond(senses)[0]
 
     @property
     def magnitude(self) -> float:

@@ -77,6 +77,8 @@ class RecordingBackend:
                 "x": [],
                 "y": [],
             },
+            fauna={"id": [], "x": [], "y": [], "energy": [],
+                   "vigilance": []},
             resources=resources,
         )
 

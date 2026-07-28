@@ -159,13 +159,34 @@ class Lexicon:
     do not.
     """
 
-    __slots__ = ("words", "confidence")
+    __slots__ = ("words", "confidence", "exposed", "challenger",
+                 "challenger_count")
 
     #: How much accumulated evidence it takes to give up a word you use.
     MAXIMUM_CONFIDENCE = 6
 
     def __init__(self) -> None:
         self.words: List[int] = [NO_WORD] * len(MEANINGS)
+        # Whether anyone has ever said anything to this person about each
+        # meaning, adopted or not. Someone who has heard others talk about
+        # a thing does not make up their own sound for it; they wait and
+        # copy. Without that, every newcomer mints a fresh form and
+        # invention permanently outruns copying, so the population
+        # accumulates variants instead of converging on any of them.
+        self.exposed: List[bool] = [False] * len(MEANINGS)
+        # The one rival form currently being weighed against the held one,
+        # and how far ahead of it that rival is. Keeping a single challenger
+        # is a running majority vote: a form that really is the common one
+        # locally keeps being reinforced and eventually displaces the held
+        # form, while passing oddities cancel each other out and never do.
+        #
+        # This is the part that makes a language possible. Copying whatever
+        # you heard last is a voter process, and a voter process does not
+        # converge on any timescale a run covers — it just relabels everyone
+        # forever. Adopting what you hear *most* does converge, and it is
+        # also what a learner surrounded by speakers actually does.
+        self.challenger: List[int] = [NO_WORD] * len(MEANINGS)
+        self.challenger_count: List[int] = [0] * len(MEANINGS)
         # Evidence for the form currently held. Copying whatever you last
         # heard is a voter process, and a voter process on a spread-out
         # population takes far longer than a run to settle — everyone keeps
@@ -178,36 +199,78 @@ class Lexicon:
     def knows(self, meaning: int) -> bool:
         return self.words[meaning] != NO_WORD
 
+    def note_exposure(self, meaning: int) -> None:
+        """Record that someone used a word for this, whether or not it stuck.
+
+        Exposure is not comprehension. It only says the meaning is one other
+        people evidently have a sound for, which is reason enough not to
+        invent a competing one.
+        """
+
+        self.exposed[meaning] = True
+
     def word_for(self, meaning: int) -> int:
         return self.words[meaning]
 
-    def learn(self, meaning: int, word: int) -> None:
+    def learn(self, meaning: int, word: int, confidence: int = 1) -> None:
         self.words[meaning] = word
-        self.confidence[meaning] = 1
+        self.confidence[meaning] = max(1, min(self.MAXIMUM_CONFIDENCE,
+                                              confidence))
+        self.challenger[meaning] = NO_WORD
+        self.challenger_count[meaning] = 0
 
-    def hear(self, meaning: int, word: int) -> bool:
+    def hear(
+        self,
+        meaning: int,
+        word: int,
+        initial_confidence: int = 1,
+    ) -> bool:
         """Take in someone else's word for something.
 
         Returns whether the listener's own usage changed. Hearing your own
         form again entrenches it; hearing a different one chips away at it,
         and only sustained disagreement makes you switch.
+
+        ``initial_confidence`` is how much credit a freshly taken-up form
+        gets. At one, a word adopted a moment ago is discarded by the very
+        next speaker who says something else, which is a voter process: on a
+        spread-out population it churns forever and no form ever wins. Giving
+        a new word more than one unit of credit means a locally common form
+        has to be contradicted repeatedly to be dislodged, which is what lets
+        neighbourhoods settle and is the difference between a language and
+        permanent babel.
         """
 
         if word == NO_WORD:
             return False
         mine = self.words[meaning]
         if mine == NO_WORD:
-            self.learn(meaning, word)
+            self.learn(meaning, word, initial_confidence)
             return True
         if mine == word:
             self.confidence[meaning] = min(
                 self.MAXIMUM_CONFIDENCE,
                 self.confidence[meaning] + 1,
             )
+            if self.challenger_count[meaning] > 0:
+                self.challenger_count[meaning] -= 1
             return False
-        self.confidence[meaning] -= 1
-        if self.confidence[meaning] <= 0:
-            self.learn(meaning, word)
+        if word == self.challenger[meaning]:
+            self.challenger_count[meaning] += 1
+        elif self.challenger_count[meaning] <= 0:
+            self.challenger[meaning] = word
+            self.challenger_count[meaning] = 1
+        else:
+            # Two different rivals cancel rather than compound. Only a form
+            # that is consistently the one being said gets anywhere.
+            self.challenger_count[meaning] -= 1
+            return False
+        if self.challenger_count[meaning] > self.confidence[meaning]:
+            self.learn(
+                meaning,
+                self.challenger[meaning],
+                initial_confidence,
+            )
             return True
         return False
 

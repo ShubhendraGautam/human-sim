@@ -10,6 +10,7 @@ export type IconName =
   | "globe"
   | "health"
   | "layers"
+  | "leaf"
   | "material"
   | "minus"
   | "pause"
@@ -37,6 +38,12 @@ export function Icon({
   const paths: Record<IconName, ReactNode> = {
     activity: (
       <path d="M3 12h4l2.2-6 4.1 12 2.2-6H21" />
+    ),
+    leaf: (
+      <>
+        <path d="M4 20C4 12 9 6 20 5c0 10-5 15-13 15Z" />
+        <path d="M4 20c4-4 7-6 12-8" />
+      </>
     ),
     brain: (
       <>

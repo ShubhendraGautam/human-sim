@@ -168,6 +168,13 @@ export function LayerPanel({
           onChange={(checked) => onToggle("agents", checked)}
         />
         <LayerRow
+          checked={layers.fauna}
+          icon="leaf"
+          label="Animals"
+          meta={`${compact(frame.metrics.fauna_population)} grazing`}
+          onChange={(checked) => onToggle("fauna", checked)}
+        />
+        <LayerRow
           checked={layers.vessels}
           icon="waves"
           label="Vessels"
