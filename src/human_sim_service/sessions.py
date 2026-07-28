@@ -40,6 +40,16 @@ MAXIMUM_BATCH_SECONDS = 0.25
 #: How long the driver may sleep before it notices it was asked to stop.
 MAXIMUM_SLEEP_SECONDS = 0.5
 
+#: A moment of daylight between batches of an unpaced run.
+#:
+#: A lock is not a queue. A thread that releases one and immediately asks for
+#: it again is usually handed it straight back, so an unpaced driver in a
+#: tight loop can keep every reader waiting indefinitely — observed as a
+#: 98-second wait for a manifest while a run advanced flat out. Standing back
+#: for a moment costs a fraction of a percent of throughput and is the
+#: difference between a run that can be watched and one that cannot.
+YIELD_SECONDS = 0.004
+
 #: How long to wait for a driver to finish the batch it is in the middle of.
 #: Long enough for any sane batch, short enough that a wedged engine cannot
 #: hold a request open indefinitely.
@@ -58,6 +68,7 @@ def plan_playback(
     seconds_per_year: Optional[float],
     ticks_per_year: int,
     seconds_per_batch: float = MAXIMUM_BATCH_SECONDS,
+    measured_seconds_per_tick: float = 0.0,
 ) -> PlaybackPlan:
     """Turn a wall-clock pace into a batch size and a wait.
 
@@ -68,12 +79,28 @@ def plan_playback(
     unattended run left going for days usually wants.
 
     Batches exist so a fast run does not pay lock and bookkeeping costs per
-    tick, and are bounded so a slow reader is never locked out for long.
+    tick. They are bounded by *time*, not by count, because that is the thing
+    a waiting reader actually experiences: a batch of twelve ticks is nothing
+    on a world of forty people and several seconds on a world of two
+    thousand, and it is the second case where a frame request goes unanswered
+    long enough to look broken. An unpaced run therefore sizes its batch from
+    how long a tick has recently taken, which is why the measurement is an
+    argument rather than a guess.
     """
 
     per_year = max(1, int(ticks_per_year))
     if seconds_per_year is None or seconds_per_year <= 0:
-        return PlaybackPlan(ticks=per_year, interval=0.0)
+        if measured_seconds_per_tick <= 0:
+            # Nothing measured yet: start at one tick and learn from it.
+            return PlaybackPlan(ticks=1, interval=0.0)
+        ticks = max(
+            1,
+            min(
+                per_year,
+                int(seconds_per_batch / measured_seconds_per_tick),
+            ),
+        )
+        return PlaybackPlan(ticks=ticks, interval=0.0)
     seconds_per_tick = seconds_per_year / per_year
     if seconds_per_tick >= seconds_per_batch:
         return PlaybackPlan(ticks=1, interval=seconds_per_tick)
@@ -270,22 +297,38 @@ class RunSession:
         _require_positive_integer(ticks, "ticks")
         _require_boolean(include_resources, "include_resources")
         with self._lock:
-            if self._status == RUN_STATUS_FAILED:
-                raise RunFailedError(
-                    f"run {self.run_id!r} failed; reset it before stepping"
-                )
-            self._status = RUN_STATUS_STEPPING
-            try:
-                self._backend.advance(ticks)
-            except Exception as error:
-                self._sequence += 1
-                self._status = RUN_STATUS_FAILED
-                self._last_error = f"{type(error).__name__}: {error}"
-                raise
-            self._sequence += 1
-            self._status = self._resting_status()
-            self._last_error = None
+            self._advance_locked(ticks)
             return self._frame_locked(include_resources)
+
+    def advance(self, ticks: int = 1) -> None:
+        """Move the run on without projecting a frame for anybody.
+
+        Rendering a frame means building a column per agent and copying the
+        lot. That is worth doing for a caller who is going to look at it, and
+        pure waste for the driver of an unattended run — which was doing it
+        after every batch, under the lock, for a world nobody was watching.
+        """
+
+        _require_positive_integer(ticks, "ticks")
+        with self._lock:
+            self._advance_locked(ticks)
+
+    def _advance_locked(self, ticks: int) -> None:
+        if self._status == RUN_STATUS_FAILED:
+            raise RunFailedError(
+                f"run {self.run_id!r} failed; reset it before stepping"
+            )
+        self._status = RUN_STATUS_STEPPING
+        try:
+            self._backend.advance(ticks)
+        except Exception as error:
+            self._sequence += 1
+            self._status = RUN_STATUS_FAILED
+            self._last_error = f"{type(error).__name__}: {error}"
+            raise
+        self._sequence += 1
+        self._status = self._resting_status()
+        self._last_error = None
 
     def reset(
         self,
@@ -393,19 +436,38 @@ class RunSession:
         """
 
         ticks_per_year = max(1, int(self.definition.config.ticks_per_year))
+        # How long a tick has been costing lately. Smoothed, because tick cost
+        # drifts with population and a single slow tick should not resize
+        # every batch after it.
+        measured = 0.0
         while not self._halt.is_set():
             with self._playback_lock:
                 pace = self._seconds_per_year
-            plan = plan_playback(pace, ticks_per_year)
+            plan = plan_playback(
+                pace,
+                ticks_per_year,
+                measured_seconds_per_tick=measured,
+            )
             started = time.monotonic()
             try:
-                self.step(plan.ticks)
+                self.advance(plan.ticks)
             except Exception:
-                # step() has already recorded the failure and the status.
+                # advance() has already recorded the failure and the status.
                 break
+            spent = time.monotonic() - started
+            sample = spent / max(1, plan.ticks)
+            measured = (
+                sample
+                if measured == 0.0
+                else measured * 0.7 + sample * 0.3
+            )
             if self._halt.is_set():
                 break
-            remaining = plan.interval - (time.monotonic() - started)
+            remaining = plan.interval - spent
+            if remaining <= 0:
+                # Always stand back, even flat out. See YIELD_SECONDS.
+                self._halt.wait(YIELD_SECONDS)
+                continue
             while remaining > 0 and not self._halt.is_set():
                 self._halt.wait(min(MAXIMUM_SLEEP_SECONDS, remaining))
                 remaining = plan.interval - (time.monotonic() - started)

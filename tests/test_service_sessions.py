@@ -315,6 +315,48 @@ class ServiceSessionTests(unittest.TestCase):
 
         manager.set_playback("readable", False)
 
+    def test_an_unpaced_run_does_not_lock_observers_out(self) -> None:
+        """A world going flat out must still be watchable.
+
+        Regression: an unpaced driver stepped a whole simulated year per
+        batch and re-took the lock the instant it let go. On a populated
+        world that meant a reader waited through batch after batch — a
+        manifest request measured at 98 seconds, which is a Run Lab that
+        never finishes loading. The batch is now sized by how long a tick
+        actually costs, and the driver stands back between batches.
+        """
+
+        manager = RunManager(id_factory=lambda: "busy")
+        # Populated enough that a tick is real work — tens of milliseconds —
+        # but not so dense that one tick alone outlasts the budget. A reader
+        # can never be let in mid-tick, so a world whose ticks cost seconds
+        # would measure the engine rather than the scheduling.
+        manager.create(
+            config=SimulationConfig(
+                width=40,
+                height=20,
+                initial_population=60,
+                ticks_per_year=12,
+            ),
+            seed=3,
+        )
+        self.addCleanup(manager.close)
+        manager.set_playback("busy", True, seconds_per_year=0.0)
+        # Let the driver measure a tick or two before timing anything.
+        time.sleep(0.5)
+
+        worst = 0.0
+        for _ in range(10):
+            started = time.monotonic()
+            manager.frame("busy")
+            worst = max(worst, time.monotonic() - started)
+
+        manager.set_playback("busy", False)
+        self.assertGreater(manager.manifest("busy")["tick"], 0)
+        # Roughly: one batch of about a quarter second, plus the read itself.
+        # The old behaviour queued a reader behind batch after batch instead.
+        self.assertLess(worst, 1.5, f"worst read waited {worst:.1f}s")
+
     def test_deleting_a_run_stops_it_driving_itself(self) -> None:
         manager = RunManager(id_factory=lambda: "doomed")
         manager.create(config=SimulationConfig(initial_population=0))
