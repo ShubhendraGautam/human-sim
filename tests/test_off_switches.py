@@ -114,6 +114,62 @@ class NeuralSwitchTest(unittest.TestCase):
         simulation.validate_state()
         self.assertGreater(len(simulation.agents), 0)
 
+    def test_a_brain_is_free_at_zero_maintenance_cost(self) -> None:
+        """The default, and the arm every upkeep experiment compares to."""
+
+        free = run(60, neural_maintenance_cost=0.0)
+        default = run(60)
+
+        self.assertEqual(
+            [(a.id, a.energy) for a in free._ordered_agents()],
+            [(a.id, a.energy) for a in default._ordered_agents()],
+        )
+
+    def test_brains_are_issued_at_full_size_when_growth_is_off(self) -> None:
+        """The default, and the arm every growth experiment compares to."""
+
+        fixed = run(60, neural_growth_enabled=False)
+        default = run(60)
+
+        self.assertEqual(
+            [(a.id, a.network.active, a.network.units)
+             for a in fixed._ordered_agents()],
+            [(a.id, a.network.active, a.network.units)
+             for a in default._ordered_agents()],
+        )
+        for agent in fixed.agents.values():
+            self.assertEqual(
+                agent.network.active,
+                fixed.config.neural_hidden_units,
+            )
+            self.assertEqual(agent.network.growth_rate, 0.0)
+
+    def test_a_blank_brain_costs_nothing_even_when_upkeep_is_on(self) -> None:
+        """Charged on what a brain actually is, not on having one.
+
+        Founders with no opinions have zero magnitude, so a population that
+        has not evolved any weights pays nothing — the cost only bites once
+        there is something to pay for.
+        """
+
+        charged = run(
+            40,
+            neural_founder_scale=0.0,
+            neural_mutation_rate=0.0,
+            neural_maintenance_cost=5.0,
+        )
+        uncharged = run(
+            40,
+            neural_founder_scale=0.0,
+            neural_mutation_rate=0.0,
+            neural_maintenance_cost=0.0,
+        )
+
+        self.assertEqual(
+            [(a.id, a.energy) for a in charged._ordered_agents()],
+            [(a.id, a.energy) for a in uncharged._ordered_agents()],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

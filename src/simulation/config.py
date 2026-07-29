@@ -259,6 +259,48 @@ class SimulationConfig:
     neural_mutation_rate: float = 0.06
     neural_mutation_scale: float = 0.09
     neural_weight_limit: float = 3.0
+    # What a brain costs to keep, per year, per unit of mean absolute
+    # inherited weight.
+    #
+    # Zero, and off, because it is unproven. It exists because the measured
+    # behaviour of the current model is that mean network magnitude climbs
+    # from 0.106 to 0.148 over 1500 years *identically* whether or not the
+    # network is allowed to influence a decision — mutation inflates it and
+    # nothing pushes back. A brain that is free has no reason to be small,
+    # so its size is a random walk rather than a trade-off.
+    #
+    # In living things neural tissue is among the most expensive to run, and
+    # that expense is exactly what makes brain size something evolution has
+    # to decide rather than accumulate. Charging for it gives selection a
+    # reason to discard opinions that are not earning their keep, and makes
+    # a strong opinion something a person pays for.
+    #
+    # Not a claim that this improves anything. It is an arm to compare, and
+    # the honest outcome may be that it costs population for nothing, in
+    # which case it stays at zero like lifetime plasticity did.
+    neural_maintenance_cost: float = 0.0
+
+    # A brain that is built over a life rather than issued at birth.
+    #
+    # Off, because `neural_hidden_units` being a number somebody chose is a
+    # real limitation but an unproven one. With it on, two things become
+    # heritable that were previously fixed: the ceiling a brain may reach,
+    # and how fast it grows toward it. Neither is the brain itself — a child
+    # is born at `neural_birth_units` however developed its parents became,
+    # for the same reason learned weights are not passed on.
+    #
+    # Selection then acts on something it could not reach before: whether
+    # building a large brain is worth what it costs. That question only has
+    # teeth alongside `neural_maintenance_cost`, which is why the two arrived
+    # together and why either alone is a partial experiment.
+    neural_growth_enabled: bool = False
+    neural_birth_units: int = 2
+    neural_minimum_ceiling: int = 3
+    neural_maximum_ceiling: int = 10
+    neural_minimum_growth_rate: float = 0.05
+    neural_maximum_growth_rate: float = 0.60
+    neural_ceiling_mutation_rate: float = 0.08
+    neural_growth_rate_mutation_scale: float = 0.05
     # Lifetime plasticity. Inherited weights are where a brain starts; this
     # is how far it can move within one life. Changing your own mind costs
     # energy, because a free one is strictly dominant and would be taken by
@@ -335,12 +377,16 @@ class SimulationConfig:
             "neural_hidden_units",
             "language_initial_confidence",
             "place_memory_capacity",
+            "neural_birth_units",
+            "neural_minimum_ceiling",
+            "neural_maximum_ceiling",
         )
         for name in integer_fields:
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"{name} must be an integer")
         for name in ("wrap_world", "materials_renewable",
+                     "neural_growth_enabled",
                      "language_enabled", "neural_brains_enabled",
                      "language_caregiver_transmission",
                      "fauna_enabled"):
@@ -355,6 +401,7 @@ class SimulationConfig:
                     "materials_renewable",
                     "language_enabled",
                     "neural_brains_enabled",
+                    "neural_growth_enabled",
                     "language_caregiver_transmission",
                     "fauna_enabled",
                 )
@@ -543,6 +590,14 @@ class SimulationConfig:
             "neural_mutation_rate",
             "neural_mutation_scale",
             "neural_weight_limit",
+            "neural_maintenance_cost",
+            "neural_birth_units",
+            "neural_minimum_ceiling",
+            "neural_maximum_ceiling",
+            "neural_minimum_growth_rate",
+            "neural_maximum_growth_rate",
+            "neural_ceiling_mutation_rate",
+            "neural_growth_rate_mutation_scale",
             "language_invention_rate",
             "language_adoption_rate",
             "language_mutation_rate",

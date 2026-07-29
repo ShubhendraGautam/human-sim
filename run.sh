@@ -320,6 +320,11 @@ cmd_scenario() {
   "$(core_python)" -m sims.simple_sim --scenario "$scenario" "$@"
 }
 
+# Does a setting change anything? Paired arms across the same seeds.
+cmd_experiment() {
+  "$(core_python)" -m sims.experiment "$@"
+}
+
 # Runs held by the service, which keep going after this command returns.
 cmd_lab() {
   API_HOST="$API_HOST" API_PORT="$API_PORT" \
@@ -410,6 +415,9 @@ ${BOLD}Simulation${OFF}
   sim [args...]         Headless run inside this command: sims.simple_sim
                         e.g. ./run.sh sim --population 1000 --ticks 240 --seed 42
   scenario [file] [..]  Run a scenario (default scenarios/two_islands.json)
+  experiment [args...]  Does a setting change anything? Paired arms, same seeds
+                        e.g. ./run.sh experiment --arm on --arm off=neural_brains_enabled=false \
+                             --config configs/scarcity.json --seeds 0,1,2,3,4,5 --years 300
 
 ${BOLD}Long-lived runs${OFF}   (held by the engine service, outlive this shell)
   lab start [opts]      Create a run and set the engine advancing it
@@ -453,6 +461,7 @@ case "$command" in
   logs|log)          cmd_logs "$@" ;;
   sim|run)           cmd_sim "$@" ;;
   scenario)          cmd_scenario "$@" ;;
+  experiment|exp)    cmd_experiment "$@" ;;
   lab)               cmd_lab "$@" ;;
   test)              cmd_test "$@" ;;
   lint)              cmd_lint "$@" ;;

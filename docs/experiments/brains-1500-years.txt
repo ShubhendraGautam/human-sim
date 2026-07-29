@@ -1,0 +1,88 @@
+12 runs: 2 arms x 6 seeds x 18000 ticks (1500 years)
+
+arm          seed   population  mean_health  mean_body_c  resource_fr  mean_networ  policy_dive  action_entr  maximum_gen
+off             0      204.000        0.988        0.786        0.100        0.148        0.157        0.533       66.000
+off             1      206.000        0.980        0.783        0.091        0.143        0.149        0.489       66.000
+off             2      207.000        0.987        0.791        0.097        0.146        0.154        0.550       67.000
+off             3      232.000        0.984        0.734        0.076        0.148        0.155        0.435       66.000
+off             4      195.000        0.990        0.808        0.104        0.146        0.161        0.472       67.000
+off             5      229.000        0.990        0.777        0.083        0.148        0.160        0.499       65.000
+base            0      256.000        0.866        0.703        0.076        0.151        0.149        0.488       63.000
+base            1      279.000        0.885        0.699        0.068        0.148        0.148        0.555       65.000
+base            2      250.000        0.913        0.702        0.079        0.150        0.142        0.546       64.000
+base            3      248.000        0.874        0.751        0.074        0.145        0.149        0.495       65.000
+base            4      254.000        0.909        0.728        0.072        0.149        0.146        0.493       65.000
+base            5      252.000        0.919        0.730        0.075        0.149        0.151        0.551       64.000
+
+Metric: population   (paired by seed, n=6)
+
+  off          mean    212.167   sd    14.851   range 195.000 to 232.000
+  base         mean    256.500   sd    11.380   range 248.000 to 279.000
+
+  base vs off
+    per-seed difference  mean +44.333   sd 21.704
+    size against off          20.9% of its mean
+    seeds favouring base     6 of 6   (sign test p = 0.031)
+    VERDICT: base differs from off — every-seed agreement, 20.9% of the off mean
+
+
+Metric: population_at_50   (paired by seed, n=6)
+
+  off          mean    156.000   sd    20.967   range 127.000 to 179.000
+  base         mean    139.833   sd    19.508   range 121.000 to 176.000
+
+  base vs off
+    per-seed difference  mean -16.167   sd 12.576
+    size against off          10.4% of its mean
+    seeds favouring base     0 of 6   (sign test p = 0.031)
+    VERDICT: base differs from off — every-seed agreement, 10.4% of the off mean
+
+
+Metric: population_at_300   (paired by seed, n=6)
+
+  off          mean    181.333   sd    18.737   range 148.000 to 206.000
+  base         mean    179.167   sd    12.057   range 165.000 to 197.000
+
+  base vs off
+    per-seed difference  mean -2.167   sd 17.577
+    size against off          1.2% of its mean
+    seeds favouring base     2 of 6   (sign test p = 1.000)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+
+Metric: population_at_1000   (paired by seed, n=6)
+
+  off          mean    221.167   sd    16.582   range 194.000 to 238.000
+  base         mean    241.667   sd    15.002   range 221.000 to 262.000
+
+  base vs off
+    per-seed difference  mean +20.500   sd 25.990
+    size against off          9.3% of its mean
+    seeds favouring base     5 of 6   (sign test p = 0.219)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+
+Metric: mean_network_magnitude   (paired by seed, n=6)
+
+  off          mean      0.147   sd     0.002   range 0.143 to 0.148
+  base         mean      0.149   sd     0.002   range 0.145 to 0.151
+
+  base vs off
+    per-seed difference  mean +0.002   sd 0.003
+    size against off          1.4% of its mean
+    seeds favouring base     5 of 6   (sign test p = 0.219)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+
+Metric: policy_diversity   (paired by seed, n=6)
+
+  off          mean      0.156   sd     0.005   range 0.149 to 0.161
+  base         mean      0.147   sd     0.003   range 0.142 to 0.151
+
+  base vs off
+    per-seed difference  mean -0.009   sd 0.005
+    size against off          5.5% of its mean
+    seeds favouring base     0 of 6   (sign test p = 0.031)
+    VERDICT: base differs from off — every-seed agreement, 5.5% of the off mean
+
+

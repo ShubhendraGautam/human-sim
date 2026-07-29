@@ -1,0 +1,166 @@
+30 runs: 5 arms x 6 seeds x 3600 ticks (300 years)
+
+arm          seed   population  mean_health  mean_body_c  resource_fr  mean_networ  policy_dive  action_entr  maximum_gen
+off             0      148.000        0.985        0.809        0.157        0.106        0.124        0.512       14.000
+off             1      206.000        0.959        0.715        0.110        0.106        0.126        0.515       14.000
+off             2      184.000        0.989        0.752        0.138        0.109        0.129        0.528       14.000
+off             3      185.000        0.963        0.740        0.128        0.107        0.120        0.530       14.000
+off             4      180.000        0.953        0.739        0.155        0.103        0.124        0.531       14.000
+off             5      185.000        0.933        0.740        0.113        0.107        0.130        0.525       14.000
+base            0      165.000        0.972        0.765        0.132        0.108        0.125        0.476       13.000
+base            1      181.000        0.942        0.732        0.124        0.105        0.120        0.525       14.000
+base            2      184.000        0.949        0.725        0.124        0.110        0.124        0.546       13.000
+base            3      166.000        0.988        0.772        0.167        0.104        0.119        0.544       14.000
+base            4      197.000        0.991        0.734        0.129        0.105        0.119        0.528       13.000
+base            5      182.000        0.994        0.761        0.144        0.109        0.123        0.497       13.000
+loud            0      191.000        0.984        0.748        0.140        0.103        0.119        0.543       13.000
+loud            1      235.000        0.943        0.685        0.100        0.104        0.121        0.527       13.000
+loud            2      166.000        0.972        0.758        0.152        0.104        0.121        0.584       14.000
+loud            3      178.000        0.990        0.776        0.178        0.106        0.124        0.586       14.000
+loud            4      214.000        0.982        0.733        0.120        0.110        0.131        0.630       14.000
+loud            5      199.000        0.992        0.745        0.136        0.107        0.123        0.564       14.000
+quiet           0      185.000        0.931        0.688        0.164        0.110        0.121        0.560       14.000
+quiet           1      188.000        0.979        0.764        0.156        0.108        0.123        0.545       13.000
+quiet           2      171.000        0.968        0.760        0.181        0.112        0.133        0.581       14.000
+quiet           3      154.000        0.961        0.745        0.202        0.104        0.118        0.507       13.000
+quiet           4      154.000        0.978        0.767        0.208        0.105        0.120        0.563       13.000
+quiet           5      175.000        0.978        0.746        0.164        0.107        0.118        0.571       13.000
+loud_quiet      0      148.000        0.989        0.787        0.222        0.105        0.121        0.555       13.000
+loud_quiet      1      146.000        0.951        0.761        0.224        0.108        0.118        0.560       13.000
+loud_quiet      2      155.000        0.982        0.738        0.195        0.108        0.122        0.558       12.000
+loud_quiet      3      156.000        0.950        0.754        0.199        0.108        0.118        0.494       14.000
+loud_quiet      4      143.000        0.973        0.764        0.241        0.106        0.120        0.587       14.000
+loud_quiet      5      158.000        0.968        0.759        0.225        0.108        0.115        0.536       15.000
+
+Metric: population   (paired by seed, n=6)
+
+  off          mean    181.333   sd    18.737   range 148.000 to 206.000
+  base         mean    179.167   sd    12.057   range 165.000 to 197.000
+  loud         mean    197.167   sd    24.879   range 166.000 to 235.000
+  quiet        mean    171.167   sd    14.689   range 154.000 to 188.000
+  loud_quiet   mean    151.000   sd     6.132   range 143.000 to 158.000
+
+  base vs off
+    per-seed difference  mean -2.167   sd 17.577
+    size against off          1.2% of its mean
+    seeds favouring base     2 of 6   (sign test p = 1.000)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  loud vs off
+    per-seed difference  mean +15.833   sd 24.128
+    size against off          8.7% of its mean
+    seeds favouring loud     4 of 6   (sign test p = 0.688)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  quiet vs off
+    per-seed difference  mean -10.167   sd 24.408
+    size against off          5.6% of its mean
+    seeds favouring quiet    1 of 6   (sign test p = 0.219)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  loud_quiet vs off
+    per-seed difference  mean -30.333   sd 19.284
+    size against off          16.7% of its mean
+    seeds favouring loud_quiet 0 of 6   (sign test p = 0.062)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+
+Metric: population_at_50   (paired by seed, n=6)
+
+  off          mean    156.000   sd    20.967   range 127.000 to 179.000
+  base         mean    139.833   sd    19.508   range 121.000 to 176.000
+  loud         mean    104.167   sd    13.805   range 87.000 to 123.000
+  quiet        mean     98.833   sd    24.293   range 69.000 to 134.000
+  loud_quiet   mean     71.500   sd    17.073   range 52.000 to 91.000
+
+  base vs off
+    per-seed difference  mean -16.167   sd 12.576
+    size against off          10.4% of its mean
+    seeds favouring base     0 of 6   (sign test p = 0.031)
+    VERDICT: base differs from off — every-seed agreement, 10.4% of the off mean
+
+  loud vs off
+    per-seed difference  mean -51.833   sd 17.279
+    size against off          33.2% of its mean
+    seeds favouring loud     0 of 6   (sign test p = 0.031)
+    VERDICT: loud differs from off — every-seed agreement, 33.2% of the off mean
+
+  quiet vs off
+    per-seed difference  mean -57.167   sd 29.212
+    size against off          36.6% of its mean
+    seeds favouring quiet    0 of 6   (sign test p = 0.031)
+    VERDICT: quiet differs from off — every-seed agreement, 36.6% of the off mean
+
+  loud_quiet vs off
+    per-seed difference  mean -84.500   sd 13.398
+    size against off          54.2% of its mean
+    seeds favouring loud_quiet 0 of 6   (sign test p = 0.031)
+    VERDICT: loud_quiet differs from off — every-seed agreement, 54.2% of the off mean
+
+
+Metric: mean_body_condition   (paired by seed, n=6)
+
+  off          mean      0.749   sd     0.032   range 0.715 to 0.809
+  base         mean      0.748   sd     0.020   range 0.725 to 0.772
+  loud         mean      0.741   sd     0.031   range 0.685 to 0.776
+  quiet        mean      0.745   sd     0.030   range 0.688 to 0.767
+  loud_quiet   mean      0.760   sd     0.016   range 0.738 to 0.787
+
+  base vs off
+    per-seed difference  mean -0.001   sd 0.030
+    size against off          0.2% of its mean
+    seeds favouring base     3 of 6   (sign test p = 1.000)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  loud vs off
+    per-seed difference  mean -0.008   sd 0.033
+    size against off          1.1% of its mean
+    seeds favouring loud     3 of 6   (sign test p = 1.000)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  quiet vs off
+    per-seed difference  mean -0.004   sd 0.060
+    size against off          0.6% of its mean
+    seeds favouring quiet    5 of 6   (sign test p = 0.219)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  loud_quiet vs off
+    per-seed difference  mean +0.011   sd 0.025
+    size against off          1.5% of its mean
+    seeds favouring loud_quiet 4 of 6   (sign test p = 0.688)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+
+Metric: mean_network_magnitude   (paired by seed, n=6)
+
+  off          mean      0.106   sd     0.002   range 0.103 to 0.109
+  base         mean      0.107   sd     0.002   range 0.104 to 0.110
+  loud         mean      0.106   sd     0.003   range 0.103 to 0.110
+  quiet        mean      0.108   sd     0.003   range 0.104 to 0.112
+  loud_quiet   mean      0.107   sd     0.001   range 0.105 to 0.108
+
+  base vs off
+    per-seed difference  mean +0.000   sd 0.002
+    size against off          0.2% of its mean
+    seeds favouring base     4 of 6   (sign test p = 0.688)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  loud vs off
+    per-seed difference  mean -0.001   sd 0.004
+    size against off          0.6% of its mean
+    seeds favouring loud     2 of 6   (sign test p = 0.688)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  quiet vs off
+    per-seed difference  mean +0.001   sd 0.003
+    size against off          1.3% of its mean
+    seeds favouring quiet    5 of 6   (sign test p = 0.219)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+  loud_quiet vs off
+    per-seed difference  mean +0.000   sd 0.001
+    size against off          0.4% of its mean
+    seeds favouring loud_quiet 4 of 6   (sign test p = 0.688)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+
+

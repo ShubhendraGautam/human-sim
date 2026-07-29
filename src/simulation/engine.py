@@ -83,6 +83,26 @@ class Simulation:
         self.config = config or SimulationConfig()
         self.seed = seed
         self.rng = random.Random(seed)
+        # Built once and handed to the two brain factories. None is the off
+        # switch, and with it every brain is issued at full size at birth
+        # exactly as it was before brains could grow.
+        self._growth_rules = (
+            neural.GrowthRules(
+                birth_units=self.config.neural_birth_units,
+                minimum_ceiling=self.config.neural_minimum_ceiling,
+                maximum_ceiling=self.config.neural_maximum_ceiling,
+                minimum_rate=self.config.neural_minimum_growth_rate,
+                maximum_rate=self.config.neural_maximum_growth_rate,
+                ceiling_mutation_rate=(
+                    self.config.neural_ceiling_mutation_rate
+                ),
+                rate_mutation_scale=(
+                    self.config.neural_growth_rate_mutation_scale
+                ),
+            )
+            if self.config.neural_growth_enabled
+            else None
+        )
         self.scenario = scenario or Scenario.default(self.config)
         self.scenario.validate(self.config)
         self.world = World(self.config, self.rng, self.scenario)
@@ -321,6 +341,7 @@ class Simulation:
                 config.neural_founder_scale
                 if config.neural_brains_enabled
                 else 0.0,
+                self._growth_rules,
             ),
             reproductive_role=self.rng.choice(tuple(ReproductiveRole)),
             birth_country_id=country.id,
@@ -618,6 +639,8 @@ class Simulation:
         spoilage_retention = math.exp(
             -config.food_spoilage_rate_per_year * elapsed_years
         )
+        brain_upkeep = config.neural_maintenance_cost * tick_scale
+        growing = self._growth_rules is not None
         deaths: List[Tuple[int, str]] = []
         if ordered_agents is None:
             ordered_agents = self._ordered_agents()
@@ -662,6 +685,33 @@ class Simulation:
                 0.0,
                 agent.energy - metabolism,
             )
+
+            # A brain built over a life rather than issued at birth. The
+            # units come online as the person ages, at a rate they inherited,
+            # up to a ceiling they inherited. Nothing is chosen here: how
+            # fast and how far are both weights in the lineage, and what
+            # decides between them is whether their carriers had children.
+            if growing:
+                network = agent.network
+                if network.active < network.units:
+                    network.grow_to(
+                        config.neural_birth_units
+                        + int(agent.age * network.growth_rate)
+                    )
+
+            # What the brain costs to keep. Charged on the inherited weights
+            # only: what a person was born with is the thing selection can
+            # act on, and what they learned within their life already pays
+            # its own price at the moment of learning.
+            #
+            # Guarded rather than multiplied by zero so that a run with the
+            # cost off does exactly the arithmetic it did before this
+            # existed, down to the last bit.
+            if brain_upkeep > 0.0:
+                agent.energy = max(
+                    0.0,
+                    agent.energy - brain_upkeep * agent.network.magnitude,
+                )
 
             pregnancy = self.pregnancies.get(agent.id)
             if pregnancy is not None:
@@ -3000,6 +3050,7 @@ class Simulation:
                     self.config.neural_mutation_rate,
                     self.config.neural_mutation_scale,
                     self.config.neural_weight_limit,
+                    self._growth_rules,
                 )
                 if self.config.neural_brains_enabled
                 else neural.Network(

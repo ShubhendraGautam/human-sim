@@ -46,6 +46,18 @@ Every run contains:
 - A bounded, fading memory of places that paid out, so foraging can be a
   return to somewhere known rather than a walk uphill. Recorded only where
   someone stood and took something from the ground.
+- A metabolic price for a brain, present and **off by default**
+  (`neural_maintenance_cost`). Energy per year per unit of mean absolute
+  inherited weight, charged on what a person was born with rather than on
+  what they learned, which pays its own price at the moment of learning. It
+  exists because of a measurement: mean network magnitude climbs from 0.106
+  to 0.148 over 1500 years *identically* whether or not the network is
+  allowed to influence a decision, so mutation inflates it and nothing pushes
+  back. A brain that is free has no reason to be small, and its size is a
+  random walk rather than a trade-off. In living things neural tissue is
+  among the most expensive to run, and that expense is what makes brain size
+  something evolution decides. Whether charging for it helps a population is
+  unmeasured; the default is zero until it is.
 - Lifetime plasticity, present and **off by default**. A learned adjustment
   to the inherited network, moved by how much better an action went than that
   action usually goes, credited to the parts of the brain that were active

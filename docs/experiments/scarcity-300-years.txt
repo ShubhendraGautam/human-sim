@@ -1,0 +1,27 @@
+12 runs: 2 arms x 6 seeds x 3600 ticks (300 years)
+
+arm          seed   population  mean_health  mean_body_c  resource_fr  mean_networ  policy_dive  action_entr  maximum_gen
+on              0        0.000        0.000        0.000        0.985        0.000        0.000        0.000        0.000  EXTINCT
+on              1        0.000        0.000        0.000        0.951        0.000        0.000        0.000        0.000  EXTINCT
+on              2        0.000        0.000        0.000        0.994        0.000        0.000        0.000        0.000  EXTINCT
+on              3        0.000        0.000        0.000        0.993        0.000        0.000        0.000        0.000  EXTINCT
+on              4        0.000        0.000        0.000        0.986        0.000        0.000        0.000        0.000  EXTINCT
+on              5        0.000        0.000        0.000        0.983        0.000        0.000        0.000        0.000  EXTINCT
+off             0        0.000        0.000        0.000        0.991        0.000        0.000        0.000        0.000  EXTINCT
+off             1        0.000        0.000        0.000        0.980        0.000        0.000        0.000        0.000  EXTINCT
+off             2        0.000        0.000        0.000        0.989        0.000        0.000        0.000        0.000  EXTINCT
+off             3        0.000        0.000        0.000        0.975        0.000        0.000        0.000        0.000  EXTINCT
+off             4        0.000        0.000        0.000        0.984        0.000        0.000        0.000        0.000  EXTINCT
+off             5        0.000        0.000        0.000        0.984        0.000        0.000        0.000        0.000  EXTINCT
+
+Metric: ticks_run   (paired by seed, n=6)
+
+  on           mean   1811.667   sd   288.486   range 1568.000 to 2264.000
+  off          mean   1855.000   sd   695.401   range 974.000 to 3024.000
+
+  off vs on
+    per-seed difference  mean +43.333   sd 846.316
+    size against on           2.4% of its mean
+    seeds favouring off      3 of 6   (sign test p = 1.000)
+    VERDICT: no difference this experiment can see. With 6 seeds only a large, consistent effect would show
+

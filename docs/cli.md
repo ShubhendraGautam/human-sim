@@ -201,3 +201,171 @@ Then open <http://127.0.0.1:5173>. URL parameters:
 
 See [ui/README.md](../ui/README.md) for frontend commands and
 [docs/ui-architecture.md](ui-architecture.md) for the service contracts.
+
+## Comparing configurations
+
+`sims.experiment` answers one question: *does this setting change anything?*
+It runs two or more arms across the same seeds and reports whether the
+difference clears seed-to-seed variation.
+
+```bash
+./run.sh experiment \
+  --arm on \
+  --arm off=neural_output_weight=0 \
+  --config configs/scarcity.json \
+  --seeds 0,1,2,3,4,5 --years 300 --metric population --jobs 2
+```
+
+- `--arm NAME=key=value[,key=value]` — repeat it; the first arm is the
+  control. An arm with no settings runs the configuration as the file left
+  it. Values are read as JSON, so `false` is a boolean and `0.05` is a number,
+  and a key that is not a `SimulationConfig` field is refused rather than
+  ignored.
+- `--metric` — any field of the metrics record, plus `ticks_run` for
+  survival. When a world kills everybody, final population is zero in every
+  arm and only survival time distinguishes them.
+- `--jobs` — runs in parallel; output stays ordered.
+- `--json` — one record per run and nothing else, including the opening and
+  final metrics for every run.
+
+### Runs are paired by seed, and that has a trap
+
+Each arm sees the same seed, so it should get the same world, the same
+founders, and the same weather; the difference on that seed is then
+attributable to the setting rather than to luck.
+
+**A setting that changes how much randomness is drawn while the world is
+being built breaks this.** `neural_brains_enabled=false` skips the weight
+draws, which shifts every later draw, so the arms end up with different
+founders standing in different places — and the comparison silently becomes
+"brains plus a different world" against "brains". Use
+`neural_output_weight=0` instead: the networks are still built, they simply
+contribute nothing, and the two arms start from an identical world.
+
+The harness checks this for you. It compares the opening measurement across
+arms and prints a warning naming the seeds where they diverged, so a
+confounded comparison announces itself instead of being read as a result.
+
+### Choosing a world that can answer the question
+
+An experiment can only see a difference the world allows to exist. Three
+bands, measured:
+
+| Config | Founders | Ceiling | What happens |
+|---|---|---|---|
+| `configs/baseline.json` | 200 | ~13,000 | No pressure. Nothing selects; every arm grows. |
+| `configs/pressure.json` | 80 | ~350 | Grows into the ceiling and stays there: ~170 people, resources held near 13% of capacity, 14 generations in 300 years. |
+| `configs/scarcity.json` | 400 | ~350 | Starts above the ceiling. Every seed goes extinct by about year 150, brains or no brains. |
+
+The ceiling is `resource_regeneration x cell_capacity x cells` food per year
+against roughly 1.33 food per person per year.
+
+Both ends are useless for comparing a mechanism. Under abundance every arm
+survives and the difference is noise; under `scarcity.json` every arm dies and
+the difference is noise again. `pressure.json` is the band where a population
+persists *and* is genuinely squeezed, which is the only place a mechanism that
+helps people eat can show up as more people.
+
+Measured results from this harness, with their raw output, are collected in
+[findings.md](findings.md).
+
+### Reading the verdict
+
+The summary reports the per-seed difference, its spread, that difference as a
+share of the control's mean, and an exact two-sided sign test. A difference is
+only called real when the seeds agree *and* the effect is large next to how
+much the seeds disagree among themselves.
+
+Note the floor: with `n` paired seeds the best possible sign-test p-value is
+`2/2ⁿ`, so **six seeds are the minimum** at the default threshold of 0.05, no
+matter how large the effect. When every seed agrees but `n` is too small, the
+summary says that rather than reporting "no difference" — a shortage of runs
+is not evidence of absence.
+
+### Metrics that survive an equilibrium
+
+`--metric` is repeatable, so one expensive sweep can be read several ways:
+
+```bash
+./run.sh experiment --arm off=neural_output_weight=0 --arm on \
+  --config configs/pressure.json --seeds 0,1,2,3,4,5 --years 300 \
+  --checkpoint-years 25,50,100 \
+  --metric population --metric population_at_50 \
+  --metric mean_body_condition --metric mean_network_magnitude
+```
+
+Final population is a weak reading in a world that reaches equilibrium: the
+land decides how many people fit, so a mechanism that only changes *how fast*
+they got there leaves no trace in it. `--checkpoint-years` records population
+at those years and exposes it as `population_at_YEAR`, which keeps the
+transient. Death causes arrive as `deaths_<cause>`, and `ticks_run` is
+survival.
+
+One reading is worth singling out. Comparing `mean_network_magnitude` between
+a live arm and a `neural_output_weight=0` arm is a **neutral-drift control**:
+in the silenced arm the same networks are still inherited and mutated, but
+nothing can select on them, because they cannot affect a decision. If the two
+arms end up at the same magnitude, the networks in the live arm are drifting
+too — whatever the world is selecting for, it is not brains.
+
+### Leaving a sweep running overnight
+
+```bash
+setsid nohup ./run.sh experiment \
+  --arm off=neural_output_weight=0 --arm base \
+  --arm plastic=plasticity_rate=0.05 \
+  --config configs/pressure.json --seeds 0,1,2,3,4,5 --years 3000 \
+  --checkpoint-years 50,300,1000,2000 \
+  --out .run/experiments/overnight.jsonl \
+  --metric population --metric population_at_1000 --metric mean_plasticity \
+  --jobs 2 > .run/experiments/overnight.txt 2>&1 &
+```
+
+`setsid nohup … &` detaches it, so closing the terminal or the editor leaves
+it running. Each finished run is printed and appended to `--out` immediately,
+so an interrupted sweep is still a partial result rather than nothing:
+
+```bash
+./run.sh experiment --summarise .run/experiments/overnight.jsonl \
+  --metric population --metric mean_plasticity
+```
+
+That re-runs the comparison from whatever completed, without simulating
+anything. Progress is `wc -l` on the same file.
+
+**Not every setting can be an arm.** One that changes how much randomness is
+drawn while the world is built gives the arms different founders — measured:
+`neural_hidden_units` does this (a different network shape draws a different
+number of weights), while `neural_output_weight` and `plasticity_rate` do
+not. Testing brain *capacity* therefore needs a different design and more
+seeds, because the founder differences have to be averaged out rather than
+cancelled. The harness prints a warning naming the seeds when it happens, so
+this is caught rather than believed.
+
+## Measuring engine speed
+
+```bash
+python -m sims.benchmark --config configs/pressure.json --ticks 400 --repeats 3
+python -m sims.benchmark --config configs/pressure.json --ticks 200 --calls
+python -m sims.benchmark --config configs/pressure.json --ticks 300 --profile
+```
+
+Three readings, and the third is the one that matters:
+
+- **ticks/s** — CPU time for this process, best of `--repeats`. Be careful
+  with it: on a laptop this same unchanged code measured 42, 34 and 20 ticks
+  per second within one session. Anything under about 20% is invisible here.
+- **`--calls`** — Python function calls, which a deterministic engine repeats
+  exactly. Zero variance, so it resolves what the clock cannot; but it counts
+  call *volume*, so a change that swaps one kind of call for another reads as
+  no change.
+- **the digest** — a fingerprint of the final state. The engine is
+  deterministic, so an optimisation that moves the digest changed the
+  simulation and its timing is beside the point. Compare digests only between
+  runs with identical config, seed, warmup and ticks.
+
+The profile is flat: about 70,000 Python calls per tick spread across the
+decision path, with no single function above 13% of self time. Two careful
+micro-optimisations were written, measured, and reverted — the profile capped
+each at roughly 1% overall. A real multiple has to come from a different
+runtime or a native core, not from local edits.

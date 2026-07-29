@@ -67,6 +67,36 @@ mechanics can produce them.
 
 ---
 
+## Does the mechanism change anything?
+
+A mechanism that cannot be shown to change an outcome is not a feature. The
+comparison harness runs arms across the same seeds and refuses to dress up a
+difference that seed-to-seed noise could explain:
+
+```bash
+./run.sh experiment \
+  --arm on --arm off=neural_output_weight=0 \
+  --config configs/pressure.json --seeds 0,1,2,3,4,5 --years 300
+```
+
+This is how lifetime plasticity ended up off by default — it measured *worse*
+than not learning, and how the neural brain was found to be a **handicap for
+the first few dozen generations and a 21% advantage after that**
+([docs/findings.md](docs/findings.md)). Two things make or break such a
+comparison, both handled for you and both explained in
+[docs/cli.md](docs/cli.md): arms must
+start from an identical world (some settings silently break that), and with
+`n` paired seeds the best possible sign-test p-value is `2/2ⁿ`, so six seeds
+is the floor at p ≤ 0.05 however large the effect.
+
+Choose the world with care. Under `configs/baseline.json` nothing is scarce
+and every arm survives; under `configs/scarcity.json` every arm goes extinct
+by about year 150. `configs/pressure.json` is the band in between, where a
+population persists *and* is squeezed — the only place a mechanism that helps
+people eat can show up as more people.
+
+---
+
 ## Runs that outlive the terminal
 
 `sims.simple_sim` runs a world *inside* the command that starts it. For a

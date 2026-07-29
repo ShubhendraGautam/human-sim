@@ -151,6 +151,7 @@ def measure(simulation: "Simulation") -> Metrics:
             mean_plasticity,
             policy_diversity,
             mean_remembered_places,
+            mean_brain_units,
         ) = _minds(agents)
         (
             mean_vocabulary,
@@ -191,6 +192,7 @@ def measure(simulation: "Simulation") -> Metrics:
         mean_plasticity = 0.0
         policy_diversity = 0.0
         mean_remembered_places = 0.0
+        mean_brain_units = 0.0
         mean_vocabulary = 0.0
         language_agreement = 0.0
         language_global_agreement = 0.0
@@ -295,11 +297,14 @@ def measure(simulation: "Simulation") -> Metrics:
         mean_network_magnitude=mean_network_magnitude,
         mean_plasticity=mean_plasticity,
         policy_diversity=policy_diversity,
+        mean_brain_units=mean_brain_units,
         mean_remembered_places=mean_remembered_places,
     )
 
 
-def _minds(agents: Sequence["Agent"]) -> Tuple[float, float, float, float]:
+def _minds(
+    agents: Sequence["Agent"],
+) -> Tuple[float, float, float, float, float]:
     """What the population's brains look like, without judging them.
 
     ``policy_diversity`` is the mean spread of inherited output weights
@@ -307,10 +312,15 @@ def _minds(agents: Sequence["Agent"]) -> Tuple[float, float, float, float]:
     any self-modification: whether everyone converged on one way of
     behaving, which would say the world has a single problem, or whether
     distinct policies coexist.
+
+    ``mean_brain_units`` is how many hidden units the population is actually
+    running. With growth off it is a constant and says nothing; with growth
+    on it is the only place brain size is visible, and a mechanism nobody
+    can see the effect of is a mechanism nobody can judge.
     """
 
     if not agents:
-        return (0.0, 0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 0.0, 0.0)
     magnitude = fmean(agent.network.magnitude for agent in agents)
     plasticity = fmean(
         agent.brain.plasticity_magnitude for agent in agents
@@ -321,11 +331,17 @@ def _minds(agents: Sequence["Agent"]) -> Tuple[float, float, float, float]:
     )
     # Spread of the output layer, averaged over its entries. A population of
     # clones scores zero however strong its opinions are.
+    #
+    # Compared only across the units every brain has. Where brains grow to
+    # different ceilings there is no counterpart to compare a large brain's
+    # last unit against, and inventing a zero for the brains that lack it
+    # would report diversity that is really a difference in size.
     first = agents[0].network
+    shared_units = min(agent.network.units for agent in agents)
     spread = 0.0
     entries = 0
     for action in range(first.outputs):
-        for unit in range(first.units):
+        for unit in range(shared_units):
             column = [
                 agent.network.output[action][unit] for agent in agents
             ]
@@ -341,6 +357,7 @@ def _minds(agents: Sequence["Agent"]) -> Tuple[float, float, float, float]:
         plasticity,
         spread / entries if entries else 0.0,
         places,
+        fmean(agent.network.active for agent in agents),
     )
 
 

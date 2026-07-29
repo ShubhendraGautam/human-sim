@@ -29,6 +29,7 @@ Three properties are load-bearing and worth stating plainly:
 
 import math
 import random
+from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 #: What a brain can perceive.
@@ -70,6 +71,30 @@ SENSE_NAMES = (
 SENSES = len(SENSE_NAMES)
 
 
+@dataclass(frozen=True, slots=True)
+class GrowthRules:
+    """How large a brain may become, and how quickly.
+
+    Passed in rather than read from the config so this module keeps knowing
+    nothing about the rest of the simulation. Its absence is the off switch:
+    with no rules, every brain is born at full size and nothing here behaves
+    differently from before growth existed.
+    """
+
+    #: Hidden units a person is born with, before any development.
+    birth_units: int
+    #: Founder ceilings are drawn from this inclusive range.
+    minimum_ceiling: int
+    maximum_ceiling: int
+    #: Founder growth rates, in hidden units gained per year of life.
+    minimum_rate: float
+    maximum_rate: float
+    #: Chance a child's inherited ceiling shifts by one unit either way.
+    ceiling_mutation_rate: float
+    #: Standard deviation of the mutation applied to an inherited rate.
+    rate_mutation_scale: float
+
+
 def squash(value: float) -> float:
     """A bounded activation that keeps runaway weights from taking over."""
 
@@ -89,11 +114,41 @@ class Network:
     experimental condition, not an improvement.
     """
 
-    __slots__ = ("hidden", "output", "units", "outputs")
+    __slots__ = (
+        "hidden",
+        "output",
+        "units",
+        "outputs",
+        "magnitude",
+        "active",
+        "growth_rate",
+    )
 
-    def __init__(self, units: int, outputs: int) -> None:
+    def __init__(
+        self,
+        units: int,
+        outputs: int,
+        active: Optional[int] = None,
+        growth_rate: float = 0.0,
+    ) -> None:
+        #: Allocated hidden units — the ceiling this brain could ever reach.
+        #: Inherited, and the one number a child gets from its parents about
+        #: how large a brain it is allowed to become.
         self.units = units
         self.outputs = outputs
+        #: Hidden units currently grown, which is what actually thinks.
+        #:
+        #: Developmental rather than inherited: a person grows toward their
+        #: ceiling over their own life, and what they grew dies with them.
+        #: A child starts small again however large its parents ended up,
+        #: for the same reason learned weights are not passed on — otherwise
+        #: a life's development would quietly become heritable, which is
+        #: Lamarck by accident.
+        self.active: int = units if active is None else active
+        #: Hidden units gained per year of life. Inherited, mutable, and the
+        #: thing selection can actually act on: how fast to build a brain,
+        #: and — with an upkeep cost — whether to bother.
+        self.growth_rate: float = growth_rate
         #: hidden[unit][sense]
         self.hidden: List[List[float]] = [
             [0.0] * SENSES for _ in range(units)
@@ -102,6 +157,53 @@ class Network:
         self.output: List[List[float]] = [
             [0.0] * units for _ in range(outputs)
         ]
+        #: Mean absolute weight — how strongly this brain pushes at all.
+        #:
+        #: Held rather than derived because a weight is only ever written by
+        #: the two factories below, and because anything that charges for a
+        #: brain has to read this every tick for every person. Recomputing
+        #: 168 absolute values per person per tick to answer a question whose
+        #: answer cannot have changed would be the most expensive line in the
+        #: engine. Any future code that writes a weight must call
+        #: ``refresh_magnitude``.
+        self.magnitude: float = 0.0
+
+    def refresh_magnitude(self) -> None:
+        """Recompute the held mean absolute weight after weights change.
+
+        Counted over the units that have actually grown, not over the ones
+        allocated for a ceiling that may never be reached. What a person is
+        charged for, and what shows up in the metrics, should be the brain
+        they are running rather than the one they might one day have.
+        """
+
+        active = self.active
+        total = 0.0
+        count = 0
+        for row in self.hidden[:active]:
+            for weight in row:
+                total += abs(weight)
+                count += 1
+        for row in self.output:
+            for weight in row[:active]:
+                total += abs(weight)
+                count += 1
+        self.magnitude = total / count if count else 0.0
+
+    def grow_to(self, units: int) -> bool:
+        """Bring this many hidden units online, up to the ceiling.
+
+        Returns whether anything changed, so a caller only pays the cost of
+        refreshing the magnitude on the few ticks of a life where a brain
+        actually gains something.
+        """
+
+        target = units if units < self.units else self.units
+        if target <= self.active:
+            return False
+        self.active = target
+        self.refresh_magnitude()
+        return True
 
     def respond(
         self,
@@ -122,9 +224,13 @@ class Network:
         a person was born with stays legible next to what they picked up.
         """
 
+        # Only grown units think. Ungrown ones are allocated storage for a
+        # ceiling this person may never reach, and reading them would let a
+        # child decide with a brain it has not built yet.
+        active = self.active
         scores = [0.0] * self.outputs
-        activations = [0.0] * self.units
-        for unit in range(self.units):
+        activations = [0.0] * active
+        for unit in range(active):
             weights = self.hidden[unit]
             total = 0.0
             for index in range(SENSES):
@@ -134,7 +240,7 @@ class Network:
             weights = self.output[action]
             learned = overlay[action] if overlay is not None else None
             total = 0.0
-            for unit in range(self.units):
+            for unit in range(active):
                 weight = weights[unit]
                 if learned is not None:
                     weight += learned[unit]
@@ -147,33 +253,13 @@ class Network:
 
         return self.respond(senses)[0]
 
-    @property
-    def magnitude(self) -> float:
-        """Mean absolute weight: how strongly a brain pushes at all.
-
-        Reported rather than used. A population whose magnitude climbs is one
-        where having an opinion started paying; a population where it decays
-        toward zero is telling you the environment does not reward one.
-        """
-
-        total = 0.0
-        count = 0
-        for row in self.hidden:
-            for weight in row:
-                total += abs(weight)
-                count += 1
-        for row in self.output:
-            for weight in row:
-                total += abs(weight)
-                count += 1
-        return total / count if count else 0.0
-
 
 def founder_network(
     rng: random.Random,
     units: int,
     outputs: int,
     scale: float,
+    growth: Optional["GrowthRules"] = None,
 ) -> Network:
     """A first-generation brain.
 
@@ -181,17 +267,47 @@ def founder_network(
     population behaves exactly as it did before brains were heritable. A small
     scale gives selection something to act on immediately without deciding in
     advance what it should favour.
+
+    Without ``growth`` every founder gets exactly ``units``, all of them
+    grown from the start, and draws the same weights in the same order as it
+    always did — which is what keeps a run with growth switched off
+    bit-identical to one from before growth existed.
     """
 
-    network = Network(units, outputs)
+    if growth is None:
+        network = Network(units, outputs)
+        if scale <= 0.0:
+            return network
+        for unit in range(units):
+            for index in range(SENSES):
+                network.hidden[unit][index] = rng.gauss(0.0, scale)
+        for action in range(outputs):
+            for unit in range(units):
+                network.output[action][unit] = rng.gauss(0.0, scale)
+        network.refresh_magnitude()
+        return network
+
+    ceiling = rng.randint(growth.minimum_ceiling, growth.maximum_ceiling)
+    rate = rng.uniform(growth.minimum_rate, growth.maximum_rate)
+    network = Network(
+        ceiling,
+        outputs,
+        active=min(growth.birth_units, ceiling),
+        growth_rate=rate,
+    )
     if scale <= 0.0:
         return network
-    for unit in range(units):
+    # Weights are drawn for the whole ceiling, including units this person
+    # may never grow into. They are inherited whether or not they were ever
+    # used, so a child can grow into a unit its parents never reached — which
+    # is what lets a lineage's capacity be selected rather than reinvented.
+    for unit in range(ceiling):
         for index in range(SENSES):
             network.hidden[unit][index] = rng.gauss(0.0, scale)
     for action in range(outputs):
-        for unit in range(units):
+        for unit in range(ceiling):
             network.output[action][unit] = rng.gauss(0.0, scale)
+    network.refresh_magnitude()
     return network
 
 
@@ -202,6 +318,7 @@ def inherit(
     mutation_rate: float,
     mutation_scale: float,
     limit: float,
+    growth: Optional["GrowthRules"] = None,
 ) -> Network:
     """Recombine two brains and let the copy be imperfect.
 
@@ -210,19 +327,77 @@ def inherit(
     channels are deliberately separate: traits are discrete loci with
     crossover, dispositions are continuous weights, and conflating them would
     make either one harder to reason about.
+
+    With ``growth``, two more things are inherited: the ceiling a brain may
+    grow to, and how fast it grows. Both mutate. What is emphatically *not*
+    inherited is how large the parents' brains actually became — a child is
+    born at ``birth_units`` however developed its parents were, because the
+    alternative is a life's development becoming heritable.
+
+    Parents of different ceilings are recombined over the units they share,
+    and any units beyond that are taken from whichever parent has them. This
+    is positional rather than NEAT's historical markings: unit three of one
+    brain is treated as the counterpart of unit three of the other. Crude,
+    and consistent with how every other weight here is already recombined.
     """
 
-    child = Network(first.units, first.outputs)
-    for unit in range(first.units):
-        source_hidden = first.hidden[unit]
-        other_hidden = second.hidden[unit]
+    if growth is None:
+        ceiling = first.units
+    else:
+        ceiling = first.units if rng.random() < 0.5 else second.units
+        if rng.random() < growth.ceiling_mutation_rate:
+            ceiling += 1 if rng.random() < 0.5 else -1
+        ceiling = max(
+            growth.minimum_ceiling,
+            min(growth.maximum_ceiling, ceiling),
+        )
+
+    if growth is None:
+        child = Network(ceiling, first.outputs)
+    else:
+        rate = (
+            first.growth_rate
+            if rng.random() < 0.5
+            else second.growth_rate
+        )
+        rate = max(
+            growth.minimum_rate,
+            min(
+                growth.maximum_rate,
+                rate + rng.gauss(0.0, growth.rate_mutation_scale),
+            ),
+        )
+        child = Network(
+            ceiling,
+            first.outputs,
+            active=min(growth.birth_units, ceiling),
+            growth_rate=rate,
+        )
+
+    # A unit beyond one parent's ceiling has only one source; a unit beyond
+    # both starts blank, which is the honest beginning for a capacity no
+    # ancestor ever had. When ceilings are fixed both parents always have
+    # every unit, so this reduces to the coin flip it always was and draws
+    # from the generator in exactly the same order.
+    for unit in range(ceiling):
+        in_first = unit < first.units
+        in_second = unit < second.units
+        source_hidden = first.hidden[unit] if in_first else None
+        other_hidden = second.hidden[unit] if in_second else None
         target = child.hidden[unit]
         for index in range(SENSES):
-            weight = (
-                source_hidden[index]
-                if rng.random() < 0.5
-                else other_hidden[index]
-            )
+            if source_hidden is not None and other_hidden is not None:
+                weight = (
+                    source_hidden[index]
+                    if rng.random() < 0.5
+                    else other_hidden[index]
+                )
+            elif source_hidden is not None:
+                weight = source_hidden[index]
+            elif other_hidden is not None:
+                weight = other_hidden[index]
+            else:
+                weight = 0.0
             if rng.random() < mutation_rate:
                 weight += rng.gauss(0.0, mutation_scale)
             target[index] = min(limit, max(-limit, weight))
@@ -230,13 +405,23 @@ def inherit(
         source_output = first.output[action]
         other_output = second.output[action]
         target_output = child.output[action]
-        for unit in range(first.units):
-            weight = (
-                source_output[unit]
-                if rng.random() < 0.5
-                else other_output[unit]
-            )
+        for unit in range(ceiling):
+            in_first = unit < first.units
+            in_second = unit < second.units
+            if in_first and in_second:
+                weight = (
+                    source_output[unit]
+                    if rng.random() < 0.5
+                    else other_output[unit]
+                )
+            elif in_first:
+                weight = source_output[unit]
+            elif in_second:
+                weight = other_output[unit]
+            else:
+                weight = 0.0
             if rng.random() < mutation_rate:
                 weight += rng.gauss(0.0, mutation_scale)
             target_output[unit] = min(limit, max(-limit, weight))
+    child.refresh_magnitude()
     return child
