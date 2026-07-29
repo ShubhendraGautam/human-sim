@@ -49,6 +49,7 @@ HEADLINE_METRICS = (
     "mean_body_condition",
     "resource_fraction",
     "mean_network_magnitude",
+    "mean_recurrent_magnitude",
     "policy_diversity",
     "action_entropy",
     "maximum_generation",

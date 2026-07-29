@@ -53,7 +53,7 @@ can move time and set starting conditions; they cannot touch a decision.
 | Mechanism | What it does |
 |---|---|
 | **Genetics** | 64-locus diploid genomes, recombination, mutation, and inherited potential kept strictly separate from acquired condition |
-| **Minds** | Four brain mechanisms over a small network that senses the world, not just its own body — with lifetime plasticity present and off by default, because it measured *worse* than not learning |
+| **Minds** | Four brain mechanisms over a small evolvable network with local perception and optional recurrent memory — with unproven recurrence and measured-worse lifetime plasticity both off by default |
 | **Language** | Populations start mute. Words are coined from nothing, grounded in what both parties can see, and children acquire them from whoever feeds them. Dialects are the expected outcome where contact is thin |
 | **Technology** | An open table of learnable techniques rather than named skills — discovery and teaching are written against no technique in particular |
 | **Seafaring** | Coastal experimentation, materials, and hulls that are spent by time at sea, so a failed voyage drowns whoever is aboard |

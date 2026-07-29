@@ -55,6 +55,70 @@ class NetworkTests(unittest.TestCase):
 
         self.assertEqual(first.evaluate(senses), second.evaluate(senses))
 
+    def test_recurrence_remembers_the_previous_hidden_state(self) -> None:
+        """The same senses can mean something different after experience."""
+
+        network = neural.Network(1, 1, recurrent=True)
+        network.hidden[0][0] = 0.5
+        network.output[0][0] = 1.0
+        network.recurrent[0][0] = 1.0
+        senses = [0.0] * neural.SENSES
+        senses[0] = 1.0
+
+        first_scores, first_state = network.respond(
+            senses,
+            recurrent_weight=1.0,
+        )
+        second_scores, second_state = network.respond(
+            senses,
+            previous=first_state,
+            recurrent_weight=1.0,
+        )
+
+        self.assertGreater(second_state[0], first_state[0])
+        self.assertGreater(second_scores[0], first_scores[0])
+
+    def test_zero_recurrence_is_the_feed_forward_off_switch(self) -> None:
+        network = neural.Network(2, 1, recurrent=True)
+        network.hidden[0][0] = 0.4
+        network.hidden[1][0] = -0.2
+        network.output[0][:] = [0.5, -0.5]
+        network.recurrent[0][:] = [3.0, 3.0]
+        network.recurrent[1][:] = [-3.0, -3.0]
+        senses = [0.0] * neural.SENSES
+        senses[0] = 1.0
+
+        without_memory = network.respond(
+            senses,
+            previous=[1.0, -1.0],
+            recurrent_weight=0.0,
+        )
+        feed_forward = network.respond(senses)
+
+        self.assertEqual(without_memory, feed_forward)
+
+    def test_founder_recurrence_uses_its_own_reproducible_stream(self) -> None:
+        first = neural.founder_network(
+            random.Random(2),
+            3,
+            4,
+            0.4,
+            recurrent_rng=random.Random(8),
+        )
+        second = neural.founder_network(
+            random.Random(2),
+            3,
+            4,
+            0.4,
+            recurrent_rng=random.Random(8),
+        )
+
+        self.assertEqual(first.hidden, second.hidden)
+        self.assertEqual(first.output, second.output)
+        self.assertEqual(first.recurrent, second.recurrent)
+        self.assertEqual(len(first.recurrent), first.units)
+        self.assertTrue(any(any(row) for row in first.recurrent))
+
     def test_a_founder_scale_of_zero_produces_blank_brains(self) -> None:
         network = neural.founder_network(
             random.Random(1), 5, len(ActionKind), 0.0,
@@ -81,6 +145,30 @@ class NetworkTests(unittest.TestCase):
         }
         self.assertTrue(values <= {1.0, -1.0})
         self.assertEqual(values, {1.0, -1.0}, "both parents should show")
+
+    def test_recurrent_connections_are_inherited_from_both_parents(
+        self,
+    ) -> None:
+        first = neural.Network(3, 2, recurrent=True)
+        second = neural.Network(3, 2, recurrent=True)
+        for target in range(3):
+            first.recurrent[target][:] = [1.0] * 3
+            second.recurrent[target][:] = [-1.0] * 3
+
+        child = neural.inherit(
+            first,
+            second,
+            random.Random(19),
+            0.0,
+            0.0,
+            3.0,
+            recurrent=True,
+        )
+
+        values = {
+            value for row in child.recurrent for value in row
+        }
+        self.assertEqual(values, {1.0, -1.0})
 
     def test_inheritance_without_mutation_copies_a_uniform_parent(
         self,
@@ -201,13 +289,25 @@ class NetworkTests(unittest.TestCase):
                 self.assertEqual(len(row), child.units)
 
     def test_weights_stay_inside_their_limit(self) -> None:
-        parent = neural.founder_network(random.Random(3), 3, 4, 2.0)
-
-        child = neural.inherit(
-            parent, parent, random.Random(5), 1.0, 40.0, 1.5,
+        parent = neural.founder_network(
+            random.Random(3),
+            3,
+            4,
+            2.0,
+            recurrent_rng=random.Random(4),
         )
 
-        for row in child.hidden + child.output:
+        child = neural.inherit(
+            parent,
+            parent,
+            random.Random(5),
+            1.0,
+            40.0,
+            1.5,
+            recurrent=True,
+        )
+
+        for row in child.hidden + child.output + child.recurrent:
             for weight in row:
                 self.assertLessEqual(abs(weight), 1.5)
 
@@ -227,6 +327,66 @@ def build(**overrides) -> Simulation:
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_recurrence_is_off_by_default(self) -> None:
+        simulation = build()
+
+        self.assertEqual(simulation.config.neural_recurrence_weight, 0.0)
+        self.assertTrue(
+            all(not agent.network.recurrent
+                for agent in simulation.agents.values())
+        )
+
+    def test_recurrence_adds_memory_without_changing_founders(self) -> None:
+        feed_forward = build(neural_recurrence_weight=0.0)
+        recurrent = build(neural_recurrence_weight=0.8)
+
+        def founders(simulation):
+            return [
+                (
+                    agent.id,
+                    agent.x,
+                    agent.y,
+                    agent.genome,
+                    agent.traits,
+                    agent.culture,
+                    agent.reproductive_role,
+                    agent.energy,
+                    agent.age,
+                )
+                for agent in simulation._ordered_agents()
+            ]
+
+        self.assertEqual(founders(feed_forward), founders(recurrent))
+        self.assertTrue(
+            all(agent.network.recurrent
+                for agent in recurrent.agents.values())
+        )
+        self.assertEqual(
+            feed_forward.measure().mean_recurrent_magnitude,
+            0.0,
+        )
+        self.assertGreater(
+            recurrent.measure().mean_recurrent_magnitude,
+            0.0,
+        )
+
+        feed_forward.run(60)
+        recurrent.run(60)
+
+        self.assertNotEqual(
+            feed_forward.state_digest(),
+            recurrent.state_digest(),
+        )
+
+    def test_a_recurrent_run_is_reproducible(self) -> None:
+        first = build(neural_recurrence_weight=0.8)
+        second = build(neural_recurrence_weight=0.8)
+
+        first.run(60)
+        second.run(60)
+
+        self.assertEqual(first.state_digest(), second.state_digest())
+
     def test_switching_brains_off_removes_them_from_the_run(self) -> None:
         """The arm every experiment with these brains compares against.
 

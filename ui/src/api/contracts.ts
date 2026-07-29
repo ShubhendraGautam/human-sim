@@ -280,6 +280,8 @@ export interface SimulationMetrics {
   meat_gained: number;
   /** Mean absolute weight of the inherited network. */
   mean_network_magnitude: number;
+  /** Mean absolute inherited hidden-to-hidden temporal weight. */
+  mean_recurrent_magnitude: number;
   /** Hidden units the population is running; constant unless brains grow. */
   mean_brain_units: number;
   /** Mean absolute weight of what people have learned within their lives. */

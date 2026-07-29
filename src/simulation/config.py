@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import Any, Dict
 
-CONFIG_SCHEMA_VERSION = 5
+CONFIG_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +259,17 @@ class SimulationConfig:
     neural_mutation_rate: float = 0.06
     neural_mutation_scale: float = 0.09
     neural_weight_limit: float = 3.0
+    # Temporal neural memory. At zero the inherited network is the original
+    # feed-forward brain. Above zero, hidden activations from the previous
+    # decision feed into the next through inherited, mutable recurrent
+    # connections. The state itself lives only for one lifetime.
+    #
+    # Off until measured. Recurrence can express history-dependent policies,
+    # but capability is not usefulness, and it adds one active_units-squared
+    # matrix evaluation to every decision. Founder recurrent weights use an
+    # independent deterministic stream, so zero and nonzero arms still start
+    # with the same bodies and world.
+    neural_recurrence_weight: float = 0.0
     # What a brain costs to keep, per year, per unit of mean absolute
     # inherited weight.
     #
@@ -590,6 +601,7 @@ class SimulationConfig:
             "neural_mutation_rate",
             "neural_mutation_scale",
             "neural_weight_limit",
+            "neural_recurrence_weight",
             "neural_maintenance_cost",
             "neural_birth_units",
             "neural_minimum_ceiling",

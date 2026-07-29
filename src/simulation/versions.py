@@ -10,4 +10,4 @@ both names, so existing imports from there continue to work.
 MODEL_VERSION = "0.6"
 
 # Incremented when the shape of Simulation.snapshot() changes.
-SNAPSHOT_SCHEMA_VERSION = 4
+SNAPSHOT_SCHEMA_VERSION = 5

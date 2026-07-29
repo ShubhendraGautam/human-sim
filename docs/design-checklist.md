@@ -207,7 +207,7 @@ Level 2 is the committed destination. Level 1 is therefore built as its
 substrate rather than as a place to stop.
 
 - [x] **C1a Inherited networks.** *(done — neuroevolution, not training.)*
-  Every person carries a small network — fourteen local senses, a handful of
+  Every person carries a small network — twenty-one local senses, a handful of
   hidden units, one score per action — whose output shifts action preference.
   It is never trained: there is no loss, no gradient and no target behaviour
   anywhere in it. Children get a per-weight recombination of their parents'
@@ -355,6 +355,21 @@ substrate rather than as a place to stop.
   remembered place is a choice weighed against the others rather than a
   behaviour. Before it, movement was pure local gradient: an agent could not
   hold the thought that there was food over the ridge last spring.
+
+- [x] **C1e Recurrent neural memory.** *Built; experimental and off by
+  default.* The inherited network now has an optional hidden-to-hidden matrix,
+  so its previous activation can change its next response to otherwise
+  identical senses. This is a real increase in representational power rather
+  than more copies of the same unit: lineages can evolve history-dependent
+  policies while evaluation remains bounded by the configured unit ceiling.
+
+  Recurrent weights are inherited, recombined, and mutated. Recurrent state is
+  held on `BrainState`, is never passed to `neural.inherit`, and starts empty
+  in every child. Founder recurrent weights use a deterministic stream keyed
+  independently of founder construction, so a `neural_recurrence_weight=0`
+  control and a recurrent arm begin with the same genomes, positions, bodies,
+  and reproductive roles. The default is zero until a long-horizon run shows
+  that temporal memory improves something selection can retain.
 
 - [ ] **C1 Level 1 — a weight vector that is heritable, learnable, and
   teachable.** Promote action scoring from config constants to per-agent data.

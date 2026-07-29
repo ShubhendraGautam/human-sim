@@ -381,6 +381,7 @@ function buildMetrics(tick: number, agents: AgentColumns): SimulationMetrics {
     hunt_kills: Math.floor(tick / 9),
     meat_gained: 6.5,
     mean_network_magnitude: 0.1,
+    mean_recurrent_magnitude: 0,
     mean_brain_units: 6,
     mean_plasticity: 0.04 + Math.sin(tick * 0.02) * 0.01,
     policy_diversity: 0.12,

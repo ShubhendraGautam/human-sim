@@ -299,6 +299,7 @@ class Metrics:
     hunt_kills: int
     meat_gained: float
     mean_network_magnitude: float
+    mean_recurrent_magnitude: float
     #: Hidden units the population is actually running, averaged. Constant
     #: while brains are issued at a fixed size; the only view of brain size
     #: once they grow.
@@ -388,6 +389,7 @@ class Metrics:
             "hunt_kills": self.hunt_kills,
             "meat_gained": self.meat_gained,
             "mean_network_magnitude": self.mean_network_magnitude,
+            "mean_recurrent_magnitude": self.mean_recurrent_magnitude,
             "mean_brain_units": self.mean_brain_units,
             "mean_plasticity": self.mean_plasticity,
             "policy_diversity": self.policy_diversity,

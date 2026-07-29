@@ -43,6 +43,14 @@ Every run contains:
   directly, and its opinion is loud enough to hear: the whole network used to
   contribute about 0.05 utility units against a decision noise of 0.20, which
   made brains-on and brains-off runs indistinguishable.
+- Bounded recurrent neural memory, present and **off by default**
+  (`neural_recurrence_weight`). When enabled, the hidden state from one
+  decision feeds the next through inherited, recombined, mutable connections.
+  This lets identical current surroundings produce different preferences
+  after different recent experience. Only the weights are inherited; the
+  activation state lives in `BrainState` and every child starts empty.
+  Founder recurrent weights come from a separate deterministic stream, so an
+  on/off comparison does not silently receive different bodies or locations.
 - A bounded, fading memory of places that paid out, so foraging can be a
   return to somewhere known rather than a walk uphill. Recorded only where
   someone stood and took something from the ground.

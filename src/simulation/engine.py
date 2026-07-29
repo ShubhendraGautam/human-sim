@@ -320,8 +320,17 @@ class Simulation:
             config.minimum_development_health_fraction,
             config.frailty_health_capacity_loss,
         )
+        agent_id = self._claim_agent_id()
+        recurrent_rng = (
+            random.Random(self._mixed_seed(agent_id, 0xB4A1))
+            if (
+                config.neural_brains_enabled
+                and config.neural_recurrence_weight != 0.0
+            )
+            else None
+        )
         agent = Agent(
-            id=self._claim_agent_id(),
+            id=agent_id,
             x=x,
             y=y,
             age=age,
@@ -342,6 +351,7 @@ class Simulation:
                 if config.neural_brains_enabled
                 else 0.0,
                 self._growth_rules,
+                recurrent_rng,
             ),
             reproductive_role=self.rng.choice(tuple(ReproductiveRole)),
             birth_country_id=country.id,
@@ -1982,7 +1992,7 @@ class Simulation:
                     reward - agent.brain.preference(learned_action),
                     config.plasticity_rate * aptitude,
                     config.plasticity_limit,
-                    config.neural_hidden_units,
+                    agent.network.units,
                 )
                 if changed:
                     # Changing your own mind is not free, or everyone would
@@ -3051,6 +3061,9 @@ class Simulation:
                     self.config.neural_mutation_scale,
                     self.config.neural_weight_limit,
                     self._growth_rules,
+                    recurrent=(
+                        self.config.neural_recurrence_weight != 0.0
+                    ),
                 )
                 if self.config.neural_brains_enabled
                 else neural.Network(

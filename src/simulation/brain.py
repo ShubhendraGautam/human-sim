@@ -38,8 +38,10 @@ class BrainState:
     #: Allocated on first use, because most brains never learn anything and
     #: an always-present matrix would cost every agent for the few that do.
     plastic: Optional[List[List[float]]] = None
-    #: The hidden state that produced the last decision, so that the outcome
-    #: can be credited to the units that actually caused it.
+    #: The hidden state that produced the last decision. Lifetime plasticity
+    #: uses it for credit assignment; recurrent networks also use it as their
+    #: one-step memory. It lives here rather than on the inherited network so
+    #: a child's state starts empty however active its parents' minds were.
     last_activations: Optional[List[float]] = None
     last_action: str = ""
     last_success: float = 0.0
@@ -219,6 +221,8 @@ def choose_action(
         bias, activations = agent.network.respond(
             sense(agent, config, len(attended), surroundings),
             agent.brain.plastic,
+            agent.brain.last_activations,
+            config.neural_recurrence_weight,
         )
         # Kept so the outcome can be credited to the state that caused it.
         agent.brain.last_activations = activations

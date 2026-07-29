@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Sequence, Set, Tuple
 
 from . import knowledge
 from . import language
+from . import neural
 from .config import CONFIG_SCHEMA_VERSION
 from .entities import INERT_KINDS, EntityKind
 from .genetics import GENOME_SCHEMA_VERSION, LOCUS_COUNT
@@ -148,6 +149,7 @@ def measure(simulation: "Simulation") -> Metrics:
         )
         (
             mean_network_magnitude,
+            mean_recurrent_magnitude,
             mean_plasticity,
             policy_diversity,
             mean_remembered_places,
@@ -189,6 +191,7 @@ def measure(simulation: "Simulation") -> Metrics:
         mean_trust = 0.0
         isolated_population = 0
         mean_network_magnitude = 0.0
+        mean_recurrent_magnitude = 0.0
         mean_plasticity = 0.0
         policy_diversity = 0.0
         mean_remembered_places = 0.0
@@ -295,6 +298,7 @@ def measure(simulation: "Simulation") -> Metrics:
         hunt_kills=simulation.total_hunt_kills,
         meat_gained=simulation._last_meat_gained,
         mean_network_magnitude=mean_network_magnitude,
+        mean_recurrent_magnitude=mean_recurrent_magnitude,
         mean_plasticity=mean_plasticity,
         policy_diversity=policy_diversity,
         mean_brain_units=mean_brain_units,
@@ -304,7 +308,7 @@ def measure(simulation: "Simulation") -> Metrics:
 
 def _minds(
     agents: Sequence["Agent"],
-) -> Tuple[float, float, float, float, float]:
+) -> Tuple[float, float, float, float, float, float]:
     """What the population's brains look like, without judging them.
 
     ``policy_diversity`` is the mean spread of inherited output weights
@@ -320,8 +324,11 @@ def _minds(
     """
 
     if not agents:
-        return (0.0, 0.0, 0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     magnitude = fmean(agent.network.magnitude for agent in agents)
+    recurrence = fmean(
+        agent.network.recurrent_magnitude for agent in agents
+    )
     plasticity = fmean(
         agent.brain.plasticity_magnitude for agent in agents
     )
@@ -354,6 +361,7 @@ def _minds(
             entries += 1
     return (
         magnitude,
+        recurrence,
         plasticity,
         spread / entries if entries else 0.0,
         places,
@@ -461,6 +469,22 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
             agent.culture,
             agent.reproductive_role,
             tuple(round(value, 8) for value in agent.brain.preferences),
+            (
+                None
+                if agent.brain.last_activations is None
+                else tuple(
+                    round(value, 8)
+                    for value in agent.brain.last_activations
+                )
+            ),
+            (
+                None
+                if agent.brain.plastic is None
+                else tuple(
+                    tuple(round(value, 8) for value in row)
+                    for row in agent.brain.plastic
+                )
+            ),
             agent.brain.last_action,
             round(agent.brain.last_success, 8),
             agent.brain.last_target_id,
@@ -930,6 +954,39 @@ def validate_state(simulation: "Simulation") -> None:
         else:
             assert agent.infection_ticks_remaining > 0
         assert len(agent.brain.preferences) == len(ActionKind)
+        assert 0 <= agent.network.active <= agent.network.units
+        assert len(agent.network.hidden) == agent.network.units
+        assert all(
+            len(row) == len(neural.SENSE_NAMES)
+            for row in agent.network.hidden
+        )
+        assert len(agent.network.output) == len(ActionKind)
+        assert all(
+            len(row) == agent.network.units
+            for row in agent.network.output
+        )
+        assert (
+            not agent.network.recurrent
+            or (
+                len(agent.network.recurrent) == agent.network.units
+                and all(
+                    len(row) == agent.network.units
+                    for row in agent.network.recurrent
+                )
+            )
+        )
+        if agent.brain.last_activations is not None:
+            assert len(agent.brain.last_activations) <= agent.network.active
+            assert all(
+                math.isfinite(value) and -1.0 <= value <= 1.0
+                for value in agent.brain.last_activations
+            )
+        if agent.brain.plastic is not None:
+            assert len(agent.brain.plastic) == len(ActionKind)
+            assert all(
+                len(row) == agent.network.units
+                for row in agent.brain.plastic
+            )
         assert all(
             0.0 <= getattr(agent.culture, name) <= 1.0
             for name in (

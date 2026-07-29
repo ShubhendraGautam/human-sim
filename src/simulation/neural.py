@@ -22,9 +22,9 @@ Three properties are load-bearing and worth stating plainly:
 - **No dependency.** The simulation core promises no third-party runtime
   imports and this keeps that promise; a matrix library would be faster and
   is not worth the debt at this size.
-- **Bounded.** Fixed shape, fixed cost per decision, weights bounded. A brain
-  cannot grow without a configuration change, so the tick cost is knowable
-  rather than emergent.
+- **Bounded.** Fixed ceilings, fixed cost per decision, weights bounded. A
+  recurrent brain can remember its previous hidden state, but it cannot add
+  connections or retain an unbounded history.
 """
 
 import math
@@ -108,15 +108,18 @@ def squash(value: float) -> float:
 class Network:
     """One person's inherited decision bias: senses in, action scores out.
 
-    Deliberately tiny. A single hidden layer with a handful of units cannot
-    represent much, which is appropriate — this is a disposition, not a
-    planner. Making it larger is a configuration change and a new
-    experimental condition, not an improvement.
+    Deliberately small. The optional recurrent layer makes the hidden state a
+    bounded memory of the previous decision: it can represent a temporal
+    disposition ("food was nearby a moment ago") without becoming a planner
+    or reading any history the person did not experience. Recurrent weights
+    are inherited and mutated; recurrent *state* is lifetime state and is
+    supplied by ``BrainState``, so children never inherit a parent's thoughts.
     """
 
     __slots__ = (
         "hidden",
         "output",
+        "recurrent",
         "units",
         "outputs",
         "magnitude",
@@ -130,6 +133,7 @@ class Network:
         outputs: int,
         active: Optional[int] = None,
         growth_rate: float = 0.0,
+        recurrent: bool = False,
     ) -> None:
         #: Allocated hidden units — the ceiling this brain could ever reach.
         #: Inherited, and the one number a child gets from its parents about
@@ -157,6 +161,14 @@ class Network:
         self.output: List[List[float]] = [
             [0.0] * units for _ in range(outputs)
         ]
+        #: recurrent[target unit][source unit]. Empty is the exact off switch.
+        #: The matrix is fixed at the inherited ceiling, while evaluation
+        #: reads only the square belonging to units that have actually grown.
+        self.recurrent: List[List[float]] = (
+            [[0.0] * units for _ in range(units)]
+            if recurrent
+            else []
+        )
         #: Mean absolute weight — how strongly this brain pushes at all.
         #:
         #: Held rather than derived because a weight is only ever written by
@@ -188,7 +200,25 @@ class Network:
             for weight in row[:active]:
                 total += abs(weight)
                 count += 1
+        for row in self.recurrent[:active]:
+            for weight in row[:active]:
+                total += abs(weight)
+                count += 1
         self.magnitude = total / count if count else 0.0
+
+    @property
+    def recurrent_magnitude(self) -> float:
+        """Mean absolute temporal weight in the brain that has grown."""
+
+        active = self.active
+        if not self.recurrent or active == 0:
+            return 0.0
+        total = sum(
+            abs(weight)
+            for row in self.recurrent[:active]
+            for weight in row[:active]
+        )
+        return total / (active * active)
 
     def grow_to(self, units: int) -> bool:
         """Bring this many hidden units online, up to the ceiling.
@@ -209,6 +239,8 @@ class Network:
         self,
         senses: Sequence[float],
         overlay: Optional[List[List[float]]] = None,
+        previous: Optional[Sequence[float]] = None,
+        recurrent_weight: float = 0.0,
     ) -> Tuple[List[float], List[float]]:
         """Score every action, and report the hidden state that produced it.
 
@@ -222,6 +254,12 @@ class Network:
         ``overlay`` is the learned adjustment to the output layer. It is
         added rather than blended, and it lives outside this object, so what
         a person was born with stays legible next to what they picked up.
+
+        ``previous`` is the hidden state from this person's prior decision.
+        It is deliberately passed in rather than stored on the inherited
+        network: weights cross generations, thoughts do not. With no
+        recurrent matrix or a weight of zero this takes the old feed-forward
+        path exactly.
         """
 
         # Only grown units think. Ungrown ones are allocated storage for a
@@ -235,6 +273,18 @@ class Network:
             total = 0.0
             for index in range(SENSES):
                 total += weights[index] * senses[index]
+            if (
+                recurrent_weight != 0.0
+                and previous is not None
+                and self.recurrent
+            ):
+                memory = self.recurrent[unit]
+                for source in range(min(active, len(previous))):
+                    total += (
+                        recurrent_weight
+                        * memory[source]
+                        * previous[source]
+                    )
             activations[unit] = squash(total)
         for action in range(self.outputs):
             weights = self.output[action]
@@ -242,7 +292,7 @@ class Network:
             total = 0.0
             for unit in range(active):
                 weight = weights[unit]
-                if learned is not None:
+                if learned is not None and unit < len(learned):
                     weight += learned[unit]
                 total += weight * activations[unit]
             scores[action] = squash(total)
@@ -260,6 +310,7 @@ def founder_network(
     outputs: int,
     scale: float,
     growth: Optional["GrowthRules"] = None,
+    recurrent_rng: Optional[random.Random] = None,
 ) -> Network:
     """A first-generation brain.
 
@@ -275,7 +326,11 @@ def founder_network(
     """
 
     if growth is None:
-        network = Network(units, outputs)
+        network = Network(
+            units,
+            outputs,
+            recurrent=recurrent_rng is not None,
+        )
         if scale <= 0.0:
             return network
         for unit in range(units):
@@ -284,6 +339,8 @@ def founder_network(
         for action in range(outputs):
             for unit in range(units):
                 network.output[action][unit] = rng.gauss(0.0, scale)
+        if recurrent_rng is not None:
+            _fill_recurrent(network, recurrent_rng, scale)
         network.refresh_magnitude()
         return network
 
@@ -294,6 +351,7 @@ def founder_network(
         outputs,
         active=min(growth.birth_units, ceiling),
         growth_rate=rate,
+        recurrent=recurrent_rng is not None,
     )
     if scale <= 0.0:
         return network
@@ -307,8 +365,28 @@ def founder_network(
     for action in range(outputs):
         for unit in range(ceiling):
             network.output[action][unit] = rng.gauss(0.0, scale)
+    if recurrent_rng is not None:
+        _fill_recurrent(network, recurrent_rng, scale)
     network.refresh_magnitude()
     return network
+
+
+def _fill_recurrent(
+    network: Network,
+    rng: random.Random,
+    scale: float,
+) -> None:
+    """Give a founder temporal connections from an independent stream.
+
+    Founder construction historically draws all later biology from the run's
+    main generator. Recurrence uses its own keyed generator so switching this
+    experimental mechanism on does not quietly give the comparison different
+    bodies, locations, or reproductive roles.
+    """
+
+    for target in range(network.units):
+        for source in range(network.units):
+            network.recurrent[target][source] = rng.gauss(0.0, scale)
 
 
 def inherit(
@@ -319,6 +397,7 @@ def inherit(
     mutation_scale: float,
     limit: float,
     growth: Optional["GrowthRules"] = None,
+    recurrent: bool = False,
 ) -> Network:
     """Recombine two brains and let the copy be imperfect.
 
@@ -353,7 +432,7 @@ def inherit(
         )
 
     if growth is None:
-        child = Network(ceiling, first.outputs)
+        child = Network(ceiling, first.outputs, recurrent=recurrent)
     else:
         rate = (
             first.growth_rate
@@ -372,6 +451,7 @@ def inherit(
             first.outputs,
             active=min(growth.birth_units, ceiling),
             growth_rate=rate,
+            recurrent=recurrent,
         )
 
     # A unit beyond one parent's ceiling has only one source; a unit beyond
@@ -423,5 +503,50 @@ def inherit(
             if rng.random() < mutation_rate:
                 weight += rng.gauss(0.0, mutation_scale)
             target_output[unit] = min(limit, max(-limit, weight))
+    if recurrent:
+        for target_unit in range(ceiling):
+            for source_unit in range(ceiling):
+                weight = _inherit_recurrent_weight(
+                    first,
+                    second,
+                    target_unit,
+                    source_unit,
+                    rng,
+                )
+                if rng.random() < mutation_rate:
+                    weight += rng.gauss(0.0, mutation_scale)
+                child.recurrent[target_unit][source_unit] = min(
+                    limit,
+                    max(-limit, weight),
+                )
     child.refresh_magnitude()
     return child
+
+
+def _inherit_recurrent_weight(
+    first: Network,
+    second: Network,
+    target: int,
+    source: int,
+    rng: random.Random,
+) -> float:
+    """Recombine one temporal connection across unequal brain ceilings."""
+
+    in_first = (
+        bool(first.recurrent)
+        and target < first.units
+        and source < first.units
+    )
+    in_second = (
+        bool(second.recurrent)
+        and target < second.units
+        and source < second.units
+    )
+    if in_first and in_second:
+        parent = first if rng.random() < 0.5 else second
+        return parent.recurrent[target][source]
+    if in_first:
+        return first.recurrent[target][source]
+    if in_second:
+        return second.recurrent[target][source]
+    return 0.0

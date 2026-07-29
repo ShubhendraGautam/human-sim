@@ -187,6 +187,15 @@ outcome record. The state is bounded and never inherited. Social brains weight
 recent successful behavior by relationship confidence and trust rather than
 copying every visible attempt equally.
 
+The inherited network can optionally be recurrent. Its extra connections feed
+the prior hidden activation into the next decision, giving evolution a bounded
+one-step memory without exposing an event log or global history. Recurrent
+weights recombine and mutate at conception like the other neural weights. The
+activation they operate on is acquired lifetime state held by `BrainState`, so
+it dies with the person and a newborn begins with no active thought from either
+parent. `neural_recurrence_weight=0` is the feed-forward off switch and remains
+the default until long-run comparisons show that temporal memory pays.
+
 Attention is capped before neighbor objects are materialized. Dependents and
 locally remembered contacts receive priority, and remaining capacity is
 sampled from the local population. Each attended person becomes a separate
@@ -204,6 +213,7 @@ decision evaluation.
 The observer reports age bands, body condition, development, frailty, health
 fraction, death causes, disease compartments, incidence and recovery totals,
 brain-kind populations, successful/attempted/failed actions, action entropy,
+inherited and recurrent network magnitude,
 remembered and recently active relationship degree and trust, reproductive
 roles, pregnancies, losses, within-person heterozygosity, and population
 genetic diversity. Food and material accounting separates world stocks,
