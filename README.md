@@ -3,6 +3,8 @@
 **A deterministic agent-based simulation for watching population-level
 behaviour appear on its own.**
 
+[![CI](https://github.com/ShubhendraGautam/human-sim/actions/workflows/ci.yml/badge.svg)](https://github.com/ShubhendraGautam/human-sim/actions/workflows/ci.yml)
+
 Nothing here is scripted — no stories, no institutions, no historical events.
 The engine defines a small substrate (space, finite food, metabolism, local
 perception, action costs, reproduction, inheritance, mutation) and everything
@@ -166,10 +168,12 @@ store instead of per-agent graphs.
 python3 -m unittest discover -v
 ```
 
-CI runs four jobs on every push: flake8 at 79 columns; the suite on Python
-3.10–3.14 with *nothing* installed, so the zero-dependency promise is enforced
-rather than stated; the suite again with the optional API dependencies, so the
-guarded tests cannot silently skip; and typecheck, test, and build for the UI.
+CI runs four jobs on every branch push and pull request: flake8 at 79 columns;
+the suite on Python 3.10–3.14 with *nothing* installed, so the zero-dependency
+promise is enforced rather than stated; the suite again with the optional API
+dependencies, so the guarded tests cannot silently skip; and typecheck, test,
+and build for the UI. Repeated pushes cancel an older in-progress run for the
+same branch, so only the newest change consumes the full test run.
 
 ---
 

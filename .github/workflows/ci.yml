@@ -2,18 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [master]
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A branch with an open PR emits both push and pull_request events. Give
+  # both runs the same key so only the newest full suite completes.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   lint:
     name: lint (flake8)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -35,6 +40,7 @@ jobs:
     # documented: adding an import outside the standard library fails here.
     name: core (python ${{ matrix.python-version }}, no dependencies)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +65,7 @@ jobs:
     # execute instead of skipping through their ModuleNotFoundError guard.
     name: service (optional API dependencies)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -87,6 +94,7 @@ jobs:
   ui:
     name: ui (typecheck, test, build)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: ui
