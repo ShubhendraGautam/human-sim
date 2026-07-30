@@ -342,12 +342,16 @@ surface rather than a public multi-user deployment.
 
 The product navigation has three stable areas:
 
-- **Scenarios** — create, validate, import, export, and later compare starting
-  conditions. Editing never changes a live run.
-- **Run Lab** — operate and inspect one reproducible run. This is the first
-  connected experience.
-- **Experiments** — run seed/population sweeps and compare distributions. This
-  follows the single-run laboratory.
+- **Scenarios** — presets and a visual editor cover validated dimensions,
+  rectangular countries/seas, founder populations, cultural distributions,
+  and resource multipliers. Validation creates a new immutable run; editing
+  never changes a live one. JSON import/export and scenario comparison remain
+  later additions.
+- **Run Lab** — operate and inspect one reproducible run.
+- **Experiments** — the first connected bench runs paired control/treatment
+  seeds on the current scenario, reports raw end-metric deltas and directional
+  agreement, and deletes its temporary runs. Population/scale sweeps, series
+  export, revision metadata, and a durable result store remain later work.
 
 The Run Lab desktop layout is:
 
@@ -602,10 +606,12 @@ and run-level concurrency even if native code releases the GIL.
    engine output.
 3. **Clock and streaming** — add play/pause, bounded tick batches, capacity-one
    WebSocket delivery, sequence/reconnect behavior, and service telemetry.
-4. **Scenario workspace** — add schema-driven validation, visual rectangle
-   editing, JSON import/export, presets, and immutable run creation.
-5. **Experiments** — add repeated seeds, constant-density scale sweeps,
-   comparable metric series, result export, and code-revision metadata.
+4. **Scenario workspace** — presets, service validation, visual rectangle
+   editing, and immutable run creation are connected. Add JSON import/export
+   and scenario comparison next.
+5. **Experiments** — paired repeated seeds and comparable end metrics are
+   connected. Add constant-density scale sweeps, metric series, result export,
+   revision metadata, and durable server-side jobs next.
 6. **Large-world projections** — add viewport queries, deterministic bins,
    resource-layer cadence, renderer profiling, and only then worker rendering
    or a binary transport if measurements justify it.

@@ -11,10 +11,14 @@ import {
   type RunSession,
   type RunSource,
   type StepRunRequest,
+  type ValidateScenarioResponse,
 } from "./contracts";
 
 export interface SimulationClient {
   readonly source: RunSource;
+  validateScenario(
+    request: Pick<CreateRunRequest, "config" | "scenario">,
+  ): Promise<ValidateScenarioResponse>;
   createRun(request: CreateRunRequest): Promise<RunSession>;
   openRun(runId: string): Promise<RunSession>;
   step(runId: string, request: StepRunRequest): Promise<RunFrame>;
@@ -37,6 +41,8 @@ export interface SimulationClient {
     agentId: string,
   ): Promise<AgentDetailEnvelope>;
   getEvents(runId: string, sinceTick: number): Promise<EventFeed>;
+  /** Remove an experiment's temporary run from the engine registry. */
+  deleteRun(runId: string): Promise<void>;
   getExportUrl(runId: string): string | null;
   dispose(): void;
 }
@@ -56,6 +62,18 @@ export class ApiSimulationClient implements SimulationClient {
 
   constructor(baseUrl: string) {
     this.#baseUrl = baseUrl.replace(/\/+$/, "");
+  }
+
+  async validateScenario(
+    request: Pick<CreateRunRequest, "config" | "scenario">,
+  ): Promise<ValidateScenarioResponse> {
+    return this.#request<ValidateScenarioResponse>(
+      "/api/v1/scenarios/validate",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      },
+    );
   }
 
   async createRun(request: CreateRunRequest): Promise<RunSession> {
@@ -149,6 +167,13 @@ export class ApiSimulationClient implements SimulationClient {
     return this.#request<EventFeed>(
       `/api/v1/runs/${encodeURIComponent(runId)}/events` +
         `?since_tick=${Math.max(-1, Math.trunc(sinceTick))}&limit=120`,
+    );
+  }
+
+  async deleteRun(runId: string): Promise<void> {
+    await this.#request<unknown>(
+      `/api/v1/runs/${encodeURIComponent(runId)}`,
+      { method: "DELETE" },
     );
   }
 

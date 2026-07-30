@@ -7,12 +7,14 @@ import {
 import { DemoSimulationClient } from "./api/demoClient";
 import type { CreateRunRequest } from "./api/contracts";
 import { EventFeedPanel } from "./components/EventFeed";
+import { ExperimentWorkspace } from "./components/ExperimentWorkspace";
 import { Icon } from "./components/Icon";
 import { LayerPanel } from "./components/LayerPanel";
 import { MetricStrip } from "./components/MetricStrip";
 import { MindTrace } from "./components/MindTrace";
 import { PersonInspector } from "./components/PersonInspector";
 import { RunToolbar } from "./components/RunToolbar";
+import { ScenarioWorkspace } from "./components/ScenarioWorkspace";
 import { Timeline } from "./components/Timeline";
 import {
   WorldCanvas,
@@ -20,66 +22,9 @@ import {
 } from "./components/WorldCanvas";
 import { useRunLab } from "./hooks/useRunLab";
 import { scenarioName } from "./lib/format";
+import { INITIAL_REQUEST } from "./lib/scenarios";
 
-// A straight channel of constant width reads as a canal, not a sea, and a
-// rectangular coast makes the whole world look like a chart rather than a
-// place. Scenario geometry is rectangles — that is the map format — but
-// several overlapping ones cut headlands and bays into the shoreline, which
-// is enough for the eye to stop seeing a diagram.
-const STRAIT: [number, number, number, number][] = [
-  [23, 0, 10, 30],
-  [20, 2, 3, 9],
-  [21, 21, 3, 7],
-  [19, 12, 2, 5],
-  [33, 5, 3, 6],
-  [32, 17, 4, 9],
-  [36, 25, 2, 5],
-];
-
-const INITIAL_REQUEST: CreateRunRequest = {
-  seed: 42,
-  config: {
-    width: 56,
-    height: 30,
-    wrap_world: false,
-    initial_population: 0,
-    ticks_per_year: 12,
-    metrics_interval: 1,
-  },
-  scenario: {
-    countries: [
-      {
-        id: 0,
-        name: "Aster",
-        region: [0, 0, 26, 30],
-        population: 90,
-        religion: "sun",
-        generosity_mean: 0.75,
-        exploration_mean: 0.3,
-        curiosity_mean: 0.45,
-        conformity_mean: 0.7,
-        starting_energy_multiplier: 1,
-        food_multiplier: 1.15,
-        material_multiplier: 0.8,
-      },
-      {
-        id: 1,
-        name: "Boreal",
-        region: [30, 0, 26, 30],
-        population: 90,
-        religion: "stars",
-        generosity_mean: 0.35,
-        exploration_mean: 0.75,
-        curiosity_mean: 0.8,
-        conformity_mean: 0.3,
-        starting_energy_multiplier: 0.9,
-        food_multiplier: 0.85,
-        material_multiplier: 1.3,
-      },
-    ],
-    seas: STRAIT,
-  },
-};
+type WorkspaceView = "scenarios" | "run" | "experiments";
 
 function makeClient(): SimulationClient {
   const demoRequested =
@@ -112,9 +57,13 @@ function LoadingShell() {
 function AppHeader({
   runId,
   source,
+  view,
+  onView,
 }: {
   runId: string;
   source: "demo" | "service";
+  view: WorkspaceView;
+  onView(view: WorkspaceView): void;
 }) {
   return (
     <header className="app-header">
@@ -131,13 +80,28 @@ function AppHeader({
         </span>
       </div>
       <nav aria-label="Primary">
-        <button disabled type="button">
+        <button
+          aria-current={view === "scenarios" ? "page" : undefined}
+          className={view === "scenarios" ? "active" : ""}
+          onClick={() => onView("scenarios")}
+          type="button"
+        >
           Scenarios
         </button>
-        <button aria-current="page" className="active" type="button">
+        <button
+          aria-current={view === "run" ? "page" : undefined}
+          className={view === "run" ? "active" : ""}
+          onClick={() => onView("run")}
+          type="button"
+        >
           Run Lab
         </button>
-        <button disabled type="button">
+        <button
+          aria-current={view === "experiments" ? "page" : undefined}
+          className={view === "experiments" ? "active" : ""}
+          onClick={() => onView("experiments")}
+          type="button"
+        >
           Experiments
         </button>
       </nav>
@@ -172,6 +136,7 @@ export default function App() {
     vessels: true,
     colorMode: "country",
   });
+  const [view, setView] = useState<WorkspaceView>("run");
 
   if (
     state.loadState === "loading" ||
@@ -203,7 +168,12 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <AppHeader runId={manifest.run_id} source={client.source} />
+      <AppHeader
+        onView={setView}
+        runId={manifest.run_id}
+        source={client.source}
+        view={view}
+      />
       {client.source === "demo" ? (
         <div className="demo-notice" role="status">
           <Icon name="spark" size={14} />
@@ -211,6 +181,28 @@ export default function App() {
           simulation result.
         </div>
       ) : null}
+      {view === "scenarios" ? (
+        <ScenarioWorkspace
+          baseRequest={{
+            seed: manifest.seed,
+            config: manifest.config,
+            scenario: manifest.scenario,
+          }}
+          client={client}
+          onLaunch={async (request: CreateRunRequest) => {
+            const opened = await actions.createRun(request);
+            if (opened) {
+              setView("run");
+            }
+            return opened;
+          }}
+        />
+      ) : null}
+      {view === "experiments" ? (
+        <ExperimentWorkspace client={client} manifest={manifest} />
+      ) : null}
+      {view === "run" ? (
+        <>
       <RunToolbar
         enginePlayback={state.enginePlayback}
         exportUrl={exportUrl}
@@ -327,6 +319,18 @@ export default function App() {
           Interface controls time and starting conditions—not agent behaviour.
         </span>
       </footer>
+        </>
+      ) : (
+        <footer className="app-footer">
+          <span>
+            Model {manifest.model.model_version} · Protocol{" "}
+            {manifest.protocol_version}
+          </span>
+          <span>
+            Scenarios set initial conditions; experiments compare mechanisms.
+          </span>
+        </footer>
+      )}
     </div>
   );
 }

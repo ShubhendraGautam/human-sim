@@ -407,16 +407,19 @@ export function useRunLab(
   // A deliberate second world, rather than the accident a reload used to be.
   // The run left behind keeps going if the engine was driving it; it is
   // found again through `sims.lab list`.
-  const newRun = useCallback(async (): Promise<void> => {
+  const createRun = useCallback(async (
+    request: CreateRunRequest,
+  ): Promise<boolean> => {
     if (steppingRef.current) {
-      return;
+      return false;
     }
     dispatch({ kind: "playing_changed", playing: false });
     dispatch({ kind: "mutation_started" });
     try {
-      const session = await client.createRun(initialRequest);
+      const session = await client.createRun(request);
       rememberRun(session.manifest.run_id);
       dispatch({ kind: "session_received", ...session });
+      return true;
     } catch (error: unknown) {
       dispatch({
         kind: "failed",
@@ -425,8 +428,14 @@ export function useRunLab(
             ? error.message
             : "A new run could not be created.",
       });
+      return false;
     }
-  }, [client, initialRequest]);
+  }, [client]);
+
+  const newRun = useCallback(
+    (): Promise<boolean> => createRun(initialRequest),
+    [createRun, initialRequest],
+  );
 
   const reset = useCallback(async (): Promise<void> => {
     const manifest = stateRef.current.manifest;
@@ -459,6 +468,7 @@ export function useRunLab(
     /** Whether the engine, rather than this tab, is making time pass. */
     serverDriven,
     actions: {
+      createRun,
       newRun,
       play: () => dispatch({ kind: "playing_changed", playing: true }),
       pause: () =>

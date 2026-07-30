@@ -475,6 +475,14 @@ export interface CreateRunRequest {
   config?: Record<string, ConfigValue>;
 }
 
+/** Engine-normalized answer used by the scenario editor before a run exists. */
+export interface ValidateScenarioResponse {
+  protocol_version: typeof PROTOCOL_VERSION;
+  valid: true;
+  config: Record<string, ConfigValue>;
+  scenario: ScenarioContract;
+}
+
 export interface StepRunRequest {
   ticks: number;
   include_resources: boolean;

@@ -18,6 +18,7 @@ import {
   type RunSession,
   type SimulationMetrics,
   type StepRunRequest,
+  type ValidateScenarioResponse,
   type WorldManifest,
 } from "./contracts";
 
@@ -738,6 +739,20 @@ export class DemoSimulationClient implements SimulationClient {
   #agentSeeds: DemoAgentSeed[] = [];
   #sequence = 0;
 
+  async validateScenario(
+    request: Pick<CreateRunRequest, "config" | "scenario">,
+  ): Promise<ValidateScenarioResponse> {
+    if (request.scenario === undefined) {
+      throw new Error("A scenario needs at least one country.");
+    }
+    return Promise.resolve({
+      protocol_version: PROTOCOL_VERSION,
+      valid: true,
+      config: request.config ?? {},
+      scenario: request.scenario,
+    });
+  }
+
   async createRun(request: CreateRunRequest): Promise<RunSession> {
     this.#sequence = 1;
     this.#manifest = buildManifest(request.seed, this.#sequence);
@@ -848,6 +863,11 @@ export class DemoSimulationClient implements SimulationClient {
       oldest_retained_tick: Math.max(0, sinceTick),
       dropped: false,
     });
+  }
+
+  async deleteRun(_runId: string): Promise<void> {
+    // The fixture holds one in-memory view and never registers service runs.
+    return Promise.resolve();
   }
 
   getExportUrl(_runId: string): null {
