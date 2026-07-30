@@ -13,15 +13,15 @@ terminal, and attach a browser to the same world a day later.
     python -m sims.lab watch <run-id> --every 60
     python -m sims.lab pause <run-id>
 
-What this cannot do is survive the service process. Runs live in memory; if
-the API is restarted the worlds it held are gone, and there is no rehydration
-path yet. For anything you would be sad to lose, take a snapshot.
+Use ``checkpoint`` before stopping the service and ``restore`` after starting
+it again. Visualization snapshots remain analysis exports and cannot resume.
 """
 
 import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -286,9 +286,91 @@ def command_snapshot(args: argparse.Namespace) -> int:
     if args.out is None:
         print(text)
         return 0
-    args.out.write_text(text, encoding="utf-8")
+    _write_atomic(args.out, text)
     print(f"wrote {args.out} ({len(text)} bytes)")
     return 0
+
+
+def command_checkpoint(args: argparse.Namespace) -> int:
+    checkpoint = request(
+        args.api,
+        f"/api/v1/runs/{args.run_id}/checkpoint",
+    )
+    text = json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
+    if args.out is None:
+        print(text)
+        return 0
+    _write_atomic(args.out, text)
+    print(
+        f"checkpointed {args.run_id} at tick "
+        f"{checkpoint['state']['tick']} to {args.out} ({len(text)} bytes)"
+    )
+    return 0
+
+
+def command_restore(args: argparse.Namespace) -> int:
+    with args.checkpoint.open(encoding="utf-8") as handle:
+        checkpoint = json.load(handle)
+    if not isinstance(checkpoint, dict):
+        raise ValueError("checkpoint JSON must contain an object")
+    body: Dict[str, Any] = {"checkpoint": checkpoint}
+    if args.run_id is not None:
+        body["run_id"] = args.run_id
+    manifest = request(
+        args.api,
+        "/api/v1/checkpoints/restore",
+        "POST",
+        body,
+    )
+    run_id = manifest["run_id"]
+    if args.pace is not None:
+        request(
+            args.api,
+            f"/api/v1/runs/{run_id}/playback",
+            "POST",
+            {"playing": True, "seconds_per_year": args.pace},
+        )
+    if args.json:
+        print(json.dumps(manifest))
+        return 0
+    print(f"restored   {run_id}")
+    print(f"tick       {manifest['tick']}  (year {manifest['year']:.1f})")
+    print(f"people     {manifest['population']}")
+    print(
+        "playing    "
+        + (
+            describe_pace(args.pace)
+            if args.pace is not None
+            else "no — inspect it, then use 'play'"
+        )
+    )
+    print(f"observe    {DEFAULT_UI}/?run={run_id}")
+    return 0
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace a JSON artifact only after its complete contents are durable."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def command_delete(args: argparse.Namespace) -> int:
@@ -487,12 +569,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     snapshot = subcommands.add_parser(
         "snapshot",
-        help="export complete run state as JSON",
+        help="export visualization state for analysis",
         parents=[shared],
     )
     snapshot.add_argument("run_id")
     snapshot.add_argument("--out", type=Path)
     snapshot.set_defaults(handler=command_snapshot)
+
+    checkpoint = subcommands.add_parser(
+        "checkpoint",
+        help="atomically save a run so it can resume later",
+        parents=[shared],
+    )
+    checkpoint.add_argument("run_id")
+    checkpoint.add_argument("--out", type=Path)
+    checkpoint.set_defaults(handler=command_checkpoint)
+
+    restore = subcommands.add_parser(
+        "restore",
+        help="create a paused run from a checkpoint",
+        parents=[shared],
+    )
+    restore.add_argument("checkpoint", type=Path)
+    restore.add_argument("--run-id")
+    restore.add_argument(
+        "--pace",
+        type=parse_pace,
+        default=None,
+        help="start restored run immediately at this pace",
+    )
+    restore.set_defaults(handler=command_restore)
 
     delete = subcommands.add_parser(
         "delete",

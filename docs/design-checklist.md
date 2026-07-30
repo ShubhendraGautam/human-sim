@@ -485,9 +485,21 @@ The three tracks interleave into one sequence. Dependencies, not preference,
 decide it.
 
 1. ~~**D1** a cheaper per-cell sweep.~~ **Done.** 3.6–4.6x, digest-identical.
-2. Separate lightweight visualization snapshots from resumable checkpoints,
-   and persist experiment streams with the code revision. Long runs need this
-   before they need anything else.
+2. ~~Separate lightweight visualization snapshots from resumable checkpoints,
+   and persist experiment streams with the code revision.~~ **Done.** The
+   checkpoint is a safe JSON causal-state contract, not a renamed visual
+   projection: RNG state, entity identity allocation, relationship slots,
+   mutable world layers, pregnancies, histories, and brain lifetime state all
+   round-trip. A restored run matches the original digest and future
+   trajectory. Service-owned files are replaced atomically, autosaved every
+   120 ticks, written on clean shutdown, and restored paused. Experiment
+   records carry the code revision.
+
+   Measured at 199 people and 32 animals after one simulated year: 1.34 MB
+   of JSON, about 8 ms to project causal state and 44 ms to serialize, fsync,
+   and atomically replace it. At the default cadence that is roughly
+   0.43 ms amortized per tick; the save itself remains an occasional
+   observer pause rather than work charged every tick.
 3. ~~**A1–A4, A6** — sprite substrate for what already exists.~~ **Done.**
    A7 is partly done; it needs a DOM test environment to finish.
 4. **B1** environmental exposure.

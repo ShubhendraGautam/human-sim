@@ -30,6 +30,7 @@ dress up the ones that do not.
 import argparse
 import json
 import math
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import fields, replace
@@ -143,9 +144,12 @@ def run_once(task: Dict[str, Any]) -> Dict[str, Any]:
     record = {
         "arm": task["arm"],
         "seed": task["seed"],
+        "code_revision": task.get("code_revision", "unknown"),
         "ticks_requested": ticks,
         "ticks_run": simulation.tick,
         "extinct_at_tick": extinct_at,
+        "config": config.to_dict(),
+        "scenario": task["scenario"],
         "overrides": task["overrides"],
         "opening": opening,
         "final": closing,
@@ -375,6 +379,8 @@ def report_as_they_arrive(
                         separators=(",", ":"),
                     ) + "\n"
                 )
+                handle.flush()
+                os.fsync(handle.fileno())
         if as_json:
             print(
                 json.dumps(record, sort_keys=True, separators=(",", ":")),
@@ -516,6 +522,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         raise ValueError("--years must be positive")
     if args.jobs < 1:
         raise ValueError("--jobs must be at least one")
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
 
     names = [name for name, _ in args.arm]
     if len(set(names)) != len(names):
@@ -543,6 +551,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "config": config.to_dict(),
             "scenario": scenario_values,
             "checkpoint_years": checkpoints,
+            "code_revision": os.environ.get(
+                "HUMAN_SIM_REVISION",
+                "unknown",
+            ),
         }
         for name, overrides in args.arm
         for seed in args.seeds

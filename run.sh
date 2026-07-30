@@ -25,6 +25,8 @@ API_PID="$RUN_DIR/api.pid"
 UI_PID="$RUN_DIR/ui.pid"
 API_LOG="$RUN_DIR/api.log"
 UI_LOG="$RUN_DIR/ui.log"
+CHECKPOINT_DIR="${HUMAN_SIM_CHECKPOINT_DIR:-$RUN_DIR/checkpoints}"
+AUTOSAVE_TICKS="${HUMAN_SIM_AUTOSAVE_TICKS:-120}"
 
 # ---------------------------------------------------------------- output ---
 
@@ -46,6 +48,20 @@ die()  { printf '%serror%s %s\n' "$RED" "$OFF" "$*" >&2; exit 1; }
 # required for the optional service.
 core_python() {
   if [ -x "$PY" ]; then printf '%s' "$PY"; else printf 'python3'; fi
+}
+
+code_revision() {
+  if [ -n "${HUMAN_SIM_REVISION:-}" ]; then
+    printf '%s' "$HUMAN_SIM_REVISION"
+    return
+  fi
+  local revision
+  revision="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+  [ -n "$revision" ] || { printf 'unknown'; return; }
+  if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then
+    revision="${revision}-dirty"
+  fi
+  printf '%s' "$revision"
 }
 
 require_venv() {
@@ -87,7 +103,7 @@ spawn() {
 
 # Terminates a process group, escalating to KILL if it ignores TERM.
 stop_pid() {
-  local name="$1" pidfile="$2" pid
+  local name="$1" pidfile="$2" max_wait="${3:-100}" pid
   if ! pid="$(live_pid "$pidfile")"; then
     rm -f "$pidfile"
     printf '%s  --%s %s not running\n' "$DIM" "$OFF" "$name"
@@ -95,7 +111,7 @@ stop_pid() {
   fi
   kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   local waited=0
-  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 100 ]; do
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$max_wait" ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
@@ -186,8 +202,12 @@ start_api() {
   mkdir -p "$RUN_DIR"
   : >"$API_LOG"
   info "Starting engine API on http://$API_HOST:$API_PORT"
-  local pid
+  local pid revision
+  revision="$(code_revision)"
   pid="$(spawn "$API_PID" "$API_LOG" \
+    env HUMAN_SIM_CHECKPOINT_DIR="$CHECKPOINT_DIR" \
+    HUMAN_SIM_AUTOSAVE_TICKS="$AUTOSAVE_TICKS" \
+    HUMAN_SIM_REVISION="$revision" \
     "$PY" -m uvicorn src.human_sim_service.api:app \
     --host "$API_HOST" --port "$API_PORT")"
   wait_for "API" "http://$API_HOST:$API_PORT/api/v1/health" \
@@ -259,9 +279,9 @@ cmd_stop() {
   done
   info "Stopping services"
   [ "$want_ui" -eq 1 ] && stop_pid "UI" "$UI_PID"
-  # Stopping the API ends every run it holds: runs live in its memory and
-  # there is no rehydration path. Closing the UI is the safe half of this.
-  [ "$want_api" -eq 1 ] && stop_pid "API" "$API_PID"
+  # The API checkpoints every run before it exits; they are restored paused
+  # the next time it starts.
+  [ "$want_api" -eq 1 ] && stop_pid "API" "$API_PID" 600
   return 0
 }
 
@@ -322,7 +342,8 @@ cmd_scenario() {
 
 # Does a setting change anything? Paired arms across the same seeds.
 cmd_experiment() {
-  "$(core_python)" -m sims.experiment "$@"
+  HUMAN_SIM_REVISION="$(code_revision)" \
+    "$(core_python)" -m sims.experiment "$@"
 }
 
 # Runs held by the service, which keep going after this command returns.
@@ -406,7 +427,7 @@ ${BOLD}Services${OFF}
       --logs, -f          follow logs after starting
   stop [opts]           Stop services (default both)
       --ui-only           leave the engine running, and its runs with it
-      --api-only          stop the engine; every run it holds is lost
+      --api-only          checkpoint runs, then stop the engine
   restart [opts]        Stop, then start again (same options as start)
   status                Show what is running
   logs [api|ui|all]     Follow service logs (Ctrl-C leaves them running)
@@ -425,7 +446,9 @@ ${BOLD}Long-lived runs${OFF}   (held by the engine service, outlive this shell)
   lab list              Every run the service is holding
   lab watch <id>        Print metrics periodically; Ctrl-C leaves it running
   lab play|pause <id>   Start or stop the engine advancing a run
-  lab snapshot <id>     Export full state as JSON (--out FILE)
+  lab snapshot <id>     Export visualization state (--out FILE)
+  lab checkpoint <id>   Atomically save resumable state (--out FILE)
+  lab restore <file>    Restore a checkpoint as a paused run
   lab delete <id>...    Stop runs and release their memory
       --all               every idle run (add --running to take those too)
   Attach a browser to any of them at ${DIM}http://127.0.0.1:${UI_PORT}/?run=<id>${OFF}

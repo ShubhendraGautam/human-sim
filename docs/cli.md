@@ -135,7 +135,9 @@ so the run keeps advancing after the command returns. Start the service with
 ./run.sh lab play <id> --pace 1h       # change pace, or resume
 ./run.sh lab pause <id>                # stop advancing; state is kept
 ./run.sh lab step <id> --ticks 12      # advance a paused run by hand
-./run.sh lab snapshot <id> --out world.json
+./run.sh lab snapshot <id> --out world.json       # analysis only
+./run.sh lab checkpoint <id> --out run.json       # resumable
+./run.sh lab restore run.json --pace fast          # move/restart
 ./run.sh lab delete <id> [<id>...]     # release the memory
 ./run.sh lab delete --all              # every idle run; --running takes those too
 ```
@@ -145,8 +147,18 @@ quickly as the machine manages, or a number with an `s`/`m`/`h`/`d` suffix.
 Add `--json` to any subcommand for machine-readable output, and `--api URL`
 (or `HUMAN_SIM_API`) to reach a service somewhere else.
 
-Runs live in the service's memory. Stopping the API ends every run it held,
-and a snapshot is an export for analysis rather than a resumable save.
+The repository launcher keeps service-owned checkpoints in `.run/checkpoints`,
+autosaves every 120 ticks, saves again on a clean shutdown, and restores runs
+paused at startup. A crash can lose at most the unsaved interval. Override the
+location with `HUMAN_SIM_CHECKPOINT_DIR` and the cadence with
+`HUMAN_SIM_AUTOSAVE_TICKS`.
+
+`lab checkpoint` writes through a temporary file and atomically replaces its
+destination, so an interrupted write leaves the previous file intact.
+`lab restore` accepts that JSON on another host. Checkpoint model and schema
+versions must match exactly; incompatible state is refused rather than
+guessed at. `lab snapshot` remains a visualization/analysis export and lacks
+the random and allocation state required to resume.
 
 ## run.sh
 

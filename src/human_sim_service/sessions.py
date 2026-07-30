@@ -4,14 +4,17 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Union
 
 from src.simulation import Scenario, SimulationConfig
+from src.simulation.checkpoint import checkpoint_definition
 
 from .backend import (
     SimulationBackend,
     SimulationBackendFactory,
     python_backend_factory,
+    python_checkpoint_backend_factory,
 )
 from .contracts import (
     AgentDetail,
@@ -23,6 +26,7 @@ from .contracts import (
     RUN_STATUS_RUNNING,
     RUN_STATUS_STEPPING,
 )
+from .persistence import CheckpointStore
 
 
 #: A feed is a notification panel, not a transcript. Capping the window keeps
@@ -172,6 +176,9 @@ class RunSession:
         definition: RunDefinition,
         *,
         backend_factory: SimulationBackendFactory = python_backend_factory,
+        backend: Optional[SimulationBackend] = None,
+        checkpoint_store: Optional[CheckpointStore] = None,
+        autosave_ticks: int = 0,
     ) -> None:
         if not isinstance(run_id, str) or not run_id:
             raise ValueError("run_id must be a nonempty string")
@@ -179,7 +186,10 @@ class RunSession:
         self.definition = definition
         self._backend_factory = backend_factory
         self._lock = threading.RLock()
-        self._backend = self._new_backend()
+        self._backend = backend if backend is not None else self._new_backend()
+        self._checkpoint_store = checkpoint_store
+        self._autosave_ticks = autosave_ticks
+        self._last_checkpoint_tick = self._backend.manifest().tick
         self._sequence = 0
         self._status = RUN_STATUS_PAUSED
         self._last_error: Optional[str] = None
@@ -228,6 +238,8 @@ class RunSession:
                     "agent_detail": True,
                     "resource_layers": True,
                     "full_snapshot_export": True,
+                    "checkpoint_export": True,
+                    "checkpoint_restore": True,
                     "playback": True,
                 },
                 playback=self.playback(),
@@ -329,6 +341,7 @@ class RunSession:
         self._sequence += 1
         self._status = self._resting_status()
         self._last_error = None
+        self._autosave_locked()
 
     def reset(
         self,
@@ -349,6 +362,8 @@ class RunSession:
             self._sequence += 1
             self._status = self._resting_status()
             self._last_error = None
+            if self._checkpoint_store is not None:
+                self._persist_locked()
             return self._frame_locked(include_resources)
 
     def _resting_status(self) -> str:
@@ -477,7 +492,7 @@ class RunSession:
             if self._status == RUN_STATUS_RUNNING:
                 self._status = RUN_STATUS_PAUSED
 
-    def close(self) -> None:
+    def close(self, *, persist: bool = True) -> None:
         """Stop driving this run and wait for the driver to notice."""
 
         with self._playback_lock:
@@ -487,10 +502,44 @@ class RunSession:
         self._halt.set()
         if driver is not None and driver is not threading.current_thread():
             driver.join(timeout=STOP_TIMEOUT_SECONDS)
+        if persist and self._checkpoint_store is not None:
+            with self._lock:
+                self._persist_locked()
 
     def export_snapshot(self) -> Dict[str, object]:
         with self._lock:
             return self._backend.export_snapshot()
+
+    def export_checkpoint(self) -> Dict[str, object]:
+        """Capture one internally consistent resumable state."""
+
+        with self._lock:
+            return self._backend.export_checkpoint()
+
+    def persist(self) -> None:
+        """Write the current checkpoint when durable storage is configured."""
+
+        if self._checkpoint_store is None:
+            return
+        with self._lock:
+            self._persist_locked()
+
+    def _autosave_locked(self) -> None:
+        if (
+            self._checkpoint_store is None
+            or self._autosave_ticks <= 0
+        ):
+            return
+        tick = self._backend.manifest().tick
+        if tick - self._last_checkpoint_tick >= self._autosave_ticks:
+            self._persist_locked()
+
+    def _persist_locked(self) -> None:
+        if self._checkpoint_store is None:
+            return
+        checkpoint = self._backend.export_checkpoint()
+        self._checkpoint_store.save(self.run_id, checkpoint)
+        self._last_checkpoint_tick = int(checkpoint["state"]["tick"])
 
     def _frame_locked(self, include_resources: bool) -> Dict[str, object]:
         source = self._backend.frame(include_resources=include_resources)
@@ -521,12 +570,34 @@ class RunManager:
         self,
         *,
         backend_factory: SimulationBackendFactory = python_backend_factory,
+        checkpoint_backend_factory: Callable[
+            [Mapping[str, object]],
+            SimulationBackend,
+        ] = python_checkpoint_backend_factory,
+        checkpoint_directory: Optional[Path] = None,
+        autosave_ticks: int = 0,
         id_factory: Callable[[], str] = lambda: uuid.uuid4().hex,
     ) -> None:
+        if (
+            not isinstance(autosave_ticks, int)
+            or isinstance(autosave_ticks, bool)
+            or autosave_ticks < 0
+        ):
+            raise ValueError("autosave_ticks must be a nonnegative integer")
         self._backend_factory = backend_factory
+        self._checkpoint_backend_factory = checkpoint_backend_factory
         self._id_factory = id_factory
         self._lock = threading.RLock()
         self._sessions: Dict[str, RunSession] = {}
+        self._checkpoint_store = (
+            None
+            if checkpoint_directory is None
+            else CheckpointStore(checkpoint_directory)
+        )
+        self._autosave_ticks = autosave_ticks
+        if self._checkpoint_store is not None:
+            for run_id, checkpoint in self._checkpoint_store.load_all():
+                self._restore_session(checkpoint, run_id)
 
     def create(
         self,
@@ -548,6 +619,8 @@ class RunManager:
             resolved_id,
             definition,
             backend_factory=self._backend_factory,
+            checkpoint_store=self._checkpoint_store,
+            autosave_ticks=self._autosave_ticks,
         )
         with self._lock:
             if resolved_id in self._sessions:
@@ -555,7 +628,55 @@ class RunManager:
                     f"run {resolved_id!r} already exists"
                 )
             self._sessions[resolved_id] = session
+        session.persist()
         return session.manifest()
+
+    def restore(
+        self,
+        checkpoint: Mapping[str, object],
+        *,
+        run_id: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Create a paused run from a resumable checkpoint."""
+
+        if not isinstance(checkpoint, Mapping):
+            raise TypeError("checkpoint must contain an object")
+        resolved_id = run_id if run_id is not None else self._id_factory()
+        if not isinstance(resolved_id, str) or not resolved_id:
+            raise ValueError("run_id must be a nonempty string")
+        with self._lock:
+            if resolved_id in self._sessions:
+                raise DuplicateRunError(
+                    f"run {resolved_id!r} already exists"
+                )
+            session = self._restore_session(checkpoint, resolved_id)
+        session.persist()
+        return session.manifest()
+
+    def _restore_session(
+        self,
+        checkpoint: Mapping[str, object],
+        run_id: str,
+    ) -> RunSession:
+        config, seed, scenario = checkpoint_definition(checkpoint)
+        definition = RunDefinition(
+            config=config,
+            seed=seed,
+            scenario=scenario,
+        )
+        backend = self._checkpoint_backend_factory(checkpoint)
+        session = RunSession(
+            run_id,
+            definition,
+            backend_factory=self._backend_factory,
+            backend=backend,
+            checkpoint_store=self._checkpoint_store,
+            autosave_ticks=self._autosave_ticks,
+        )
+        if run_id in self._sessions:
+            raise DuplicateRunError(f"run {run_id!r} already exists")
+        self._sessions[run_id] = session
+        return session
 
     def list_manifests(self) -> List[Dict[str, object]]:
         with self._lock:
@@ -644,7 +765,9 @@ class RunManager:
             session = self._sessions.pop(run_id, None)
         if session is None:
             raise RunNotFoundError(f"run {run_id!r} does not exist")
-        session.close()
+        session.close(persist=False)
+        if self._checkpoint_store is not None:
+            self._checkpoint_store.delete(run_id)
 
     def close(self) -> None:
         """Stop every driver, for a service that is shutting down."""
@@ -656,6 +779,9 @@ class RunManager:
 
     def export_snapshot(self, run_id: str) -> Dict[str, object]:
         return self._session(run_id).export_snapshot()
+
+    def export_checkpoint(self, run_id: str) -> Dict[str, object]:
+        return self._session(run_id).export_checkpoint()
 
     def _session(self, run_id: str) -> RunSession:
         with self._lock:

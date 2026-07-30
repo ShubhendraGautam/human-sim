@@ -115,6 +115,7 @@ terminal, nothing attached:
 ./run.sh lab list                   # what the service is holding
 ./run.sh lab watch <id> --every 60  # a metrics line a minute; Ctrl-C is safe
 ./run.sh lab pause <id>
+./run.sh lab checkpoint <id> --out run.checkpoint.json
 ```
 
 `--pace` is how much real time one simulated year should take: `fast`, or a
@@ -122,10 +123,20 @@ number with an `s`/`m`/`h`/`d` suffix. Opening the Run Lab *attaches* to a run
 rather than starting one, so a reload continues where you were and closing the
 tab leaves the world going.
 
-⚠️ **Runs live in memory.** Stopping the API — `./run.sh stop`, a crash, a
-reboot — ends every run it held, and there is no way to load one back.
-`./run.sh stop --ui-only` is the safe half. Snapshots are an export for
-analysis, not a resumable save.
+The service atomically checkpoints runs under `.run/checkpoints` every 120
+ticks and once more during a clean shutdown. Starting it again restores them
+paused, so a restart never starts consuming compute without being asked.
+After a hard crash, at most one autosave interval is lost. Set
+`HUMAN_SIM_AUTOSAVE_TICKS` to change that interval.
+
+For another machine, export and restore explicitly:
+
+```bash
+./run.sh lab checkpoint <id> --out run.checkpoint.json
+./run.sh lab restore run.checkpoint.json --pace fast
+```
+
+A visualization snapshot remains an analysis export and cannot resume a run.
 
 Every command, including the headless recipes and the scaling and profiling
 harnesses, is in [docs/cli.md](docs/cli.md).
@@ -185,8 +196,8 @@ candidate emergent behaviour should be measurable, repeatable as a
 distribution, and absent or qualitatively different below some scale.
 
 Experiment-facing parameters live in `SimulationConfig`; changing one creates
-a new experimental condition. Record the complete configuration, seed, and
-code revision with any result.
+a new experimental condition. Experiment output records the complete
+configuration, seed, and code revision with every result.
 
 ---
 

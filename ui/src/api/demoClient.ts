@@ -226,6 +226,7 @@ function buildManifest(seed: number, sequence: number): RunManifest {
     model: {
       model_version: "demo-adapter",
       snapshot_schema_version: 3,
+      checkpoint_schema_version: 1,
       config_schema_version: 1,
       genome_schema_version: 1,
     },
@@ -274,6 +275,8 @@ function buildManifest(seed: number, sequence: number): RunManifest {
       agent_detail: true,
       resource_layers: true,
       full_snapshot_export: false,
+      checkpoint_export: false,
+      checkpoint_restore: false,
       // Nothing is running behind this fixture, so playback is the browser's
       // own timer and stops when the tab does.
       playback: false,

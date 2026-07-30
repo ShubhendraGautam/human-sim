@@ -261,6 +261,30 @@ class Simulation:
             include_relationships=include_relationships,
         )
 
+    def checkpoint(self) -> Dict[str, object]:
+        """Return versioned JSON causal state that can resume exactly."""
+
+        from .checkpoint import export_checkpoint
+
+        return export_checkpoint(self)
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        payload: Dict[str, object],
+        event_sink: Optional[EventSink] = None,
+        metrics_sink: Optional[MetricsSink] = None,
+    ) -> "Simulation":
+        """Restore a run from :meth:`checkpoint`."""
+
+        from .checkpoint import restore_checkpoint
+
+        return restore_checkpoint(
+            payload,
+            event_sink=event_sink,
+            metrics_sink=metrics_sink,
+        )
+
     def validate_state(self) -> None:
         """Raise if any cross-structure invariant is violated."""
 

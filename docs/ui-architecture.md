@@ -21,10 +21,10 @@ not, by itself, a claim that its HTTP endpoint, streaming path, persistence, or
 large-world optimization is already implemented.
 
 The repository currently contains the synchronous service/session foundation,
-its optional REST adapter, and a frontend foundation with both service and
-explicitly synthetic demo clients. Autonomous playback, WebSocket streaming,
-worker processes, viewport aggregation, experiments, and resumable
-checkpoints remain milestones.
+its optional REST adapter, autonomous playback, safe resumable checkpoints,
+and a frontend foundation with both service and explicitly synthetic demo
+clients. WebSocket streaming, worker processes, viewport aggregation, and a
+browser experiment workspace remain milestones.
 
 ## Technology choices
 
@@ -149,22 +149,22 @@ Three rules keep the two honest:
 - **One clock at a time.** Stepping by hand is refused while the engine is
   driving, rather than interleaving two sources of time on one world.
 
-Runs are held in memory for the life of the service process. There is no
-rehydration path: a restart ends every run it held, and `GET /snapshot` is an
-export for analysis rather than a resumable save. Reattaching therefore
-survives a UI restart but not an engine restart, and a client that cannot
-find the run it was watching must say so rather than quietly opening a
-different world.
+Active runs are held in memory and periodically written as atomic resumable
+checkpoints. A clean shutdown saves once more; startup restores every saved
+run paused. Reattaching therefore survives UI and engine restarts without
+silently starting the simulation clock. `GET /snapshot` remains an analysis
+export and must not be used for rehydration.
 
 ## Versioned UI contracts
 
 The UI protocol has its own `protocol_version` and projection
-`schema_version`. It also reports the engine's model, snapshot, configuration,
-and genome versions. These numbers answer different compatibility questions
-and must not be collapsed into one value. Manifest, frame, and agent-detail
-schemas are versioned independently, and they have already diverged: the
-manifest and event feed are at 1, the frame is at 2 (it carries the herd), and
-agent detail is at 2 (it carries a biography for the dead).
+`schema_version`. It also reports the engine's model, snapshot, checkpoint,
+configuration, and genome versions. These numbers answer different
+compatibility questions and must not be collapsed into one value. Manifest,
+frame, and agent-detail schemas are versioned independently, and they have
+already diverged: the manifest and event feed are at 1, the frame is at 2 (it
+carries the herd), and agent detail is at 2 (it carries a biography for the
+dead).
 
 A client therefore states which versions of each kind it can read, not one
 version for everything. Collapsing them into a single constant makes an
@@ -272,15 +272,17 @@ only a labelled historical selection. Detail has no update operation.
 
 ### Full snapshot export
 
-The existing schema-3 visualization snapshot remains useful for recording,
+The existing schema-5 visualization snapshot remains useful for recording,
 offline analysis, and bug reports. It is larger than a frame and may contain
 the entire world, every causal agent column, pregnancies, and all retained
 relationship edges.
 
 It is explicitly `snapshot_kind: "visualization"`. It lacks resolver random
 state and allocation details, so neither service nor UI may advertise it as a
-save game or resumable checkpoint. Checkpoints require a distinct contract and
-deterministic resume tests.
+save game. The separate checkpoint contract includes the RNG, identity
+high-water mark, raw relationship slot order, mutable layers, causal entity
+state, and bounded histories. JSON round-trip and future-trajectory tests are
+the acceptance boundary.
 
 ## Run lifecycle and command semantics
 
@@ -552,9 +554,9 @@ process, spatial partitioning should use a modest number of workers and
 exchange boundary actions between explicit tick phases.
 
 Worker commands and results use the same serializable service contracts. A
-worker crash transitions the run to `failed`; the supervisor does not
-reconstruct it from a visualization snapshot. Idle-run unloading depends on a
-future resumable checkpoint format.
+worker crash transitions the run to `failed`; a supervisor may restore the
+last resumable checkpoint, never a visualization snapshot. Idle-run unloading
+can use the same checkpoint boundary when it is implemented.
 
 ## Native-code seam
 
@@ -607,8 +609,8 @@ and run-level concurrency even if native code releases the GIL.
 6. **Large-world projections** — add viewport queries, deterministic bins,
    resource-layer cadence, renderer profiling, and only then worker rendering
    or a binary transport if measurements justify it.
-7. **Durability and acceleration** — define and test resumable checkpoints;
-   move run execution to bounded worker processes; port only demonstrated hot
+7. **Durability and acceleration** — resumable checkpoints are done; move run
+   execution to bounded worker processes and port only demonstrated hot
    kernels behind `SimulationBackend`.
 
 Each milestone keeps a headless path. A browser feature is complete only when

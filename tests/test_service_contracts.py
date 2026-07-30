@@ -85,6 +85,7 @@ class ServiceContractTests(unittest.TestCase):
             10,
         )
         self.assertIn("config_schema_version", manifest["model"])
+        self.assertIn("checkpoint_schema_version", manifest["model"])
         self.assertIn("genome_schema_version", manifest["model"])
         self.assertTrue(manifest["capabilities"]["resource_layers"])
 

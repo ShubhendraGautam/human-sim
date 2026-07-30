@@ -43,12 +43,14 @@ from .models import (
 from . import neural
 from .scenario import CountrySpec, Rectangle, Scenario
 from .relationships import RelationshipStore, RelationshipView
+from .versions import CHECKPOINT_SCHEMA_VERSION
 
 __all__ = [
     "ActionKind",
     "Agent",
     "BrainKind",
     "BrainState",
+    "CHECKPOINT_SCHEMA_VERSION",
     "CountrySpec",
     "CONFIG_SCHEMA_VERSION",
     "CultureState",

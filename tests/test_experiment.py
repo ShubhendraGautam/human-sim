@@ -207,6 +207,16 @@ class VerdictTests(unittest.TestCase):
 
 
 class TransientTests(unittest.TestCase):
+    def test_each_record_names_the_code_that_produced_it(self) -> None:
+        request = task("on", 2, {}, ticks=1)
+        request["code_revision"] = "abc123-dirty"
+
+        record = run_once(request)
+
+        self.assertEqual(record["code_revision"], "abc123-dirty")
+        self.assertEqual(record["config"], request["config"])
+        self.assertIsNone(record["scenario"])
+
     def test_checkpoints_record_the_population_on_the_way(self) -> None:
         """Equilibrium is set by the land; the transient is where a
         mechanism that only changes the rate of growth can still show."""

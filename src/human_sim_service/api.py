@@ -5,6 +5,8 @@ itself remains dependency-free.
 """
 
 from contextlib import asynccontextmanager
+import os
+from pathlib import Path
 from typing import Annotated, Any, AsyncIterator, Dict, Optional
 
 from fastapi import FastAPI, Query, status
@@ -73,6 +75,15 @@ class ResetRunRequest(BaseModel):
     include_resources: bool = False
 
 
+class RestoreCheckpointRequest(BaseModel):
+    """Create a paused run from complete causal state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    checkpoint: Dict[str, Any]
+    run_id: Optional[str] = None
+
+
 class ValidateScenarioRequest(BaseModel):
     """Validate scenario-editor input against the engine rules."""
 
@@ -85,7 +96,7 @@ class ValidateScenarioRequest(BaseModel):
 def create_app(manager: Optional[RunManager] = None) -> FastAPI:
     """Build an app with an injectable run registry for tests."""
 
-    runs = manager or RunManager()
+    runs = manager or _manager_from_environment()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -202,6 +213,18 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
             scenario=request.scenario,
         )
 
+    @app.post(
+        "/api/v1/checkpoints/restore",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def restore_checkpoint(
+        request: RestoreCheckpointRequest,
+    ) -> Dict[str, object]:
+        return runs.restore(
+            request.checkpoint,
+            run_id=request.run_id,
+        )
+
     @app.get("/api/v1/runs/{run_id}/manifest")
     def run_manifest(run_id: str) -> Dict[str, object]:
         return runs.manifest(run_id)
@@ -284,7 +307,26 @@ def create_app(manager: Optional[RunManager] = None) -> FastAPI:
     def export_snapshot(run_id: str) -> Dict[str, object]:
         return runs.export_snapshot(run_id)
 
+    @app.get("/api/v1/runs/{run_id}/checkpoint")
+    def export_checkpoint(run_id: str) -> Dict[str, object]:
+        return runs.export_checkpoint(run_id)
+
     return app
+
+
+def _manager_from_environment() -> RunManager:
+    directory = os.environ.get("HUMAN_SIM_CHECKPOINT_DIR")
+    raw_ticks = os.environ.get("HUMAN_SIM_AUTOSAVE_TICKS", "0")
+    try:
+        autosave_ticks = int(raw_ticks)
+    except ValueError:
+        raise ValueError(
+            "HUMAN_SIM_AUTOSAVE_TICKS must be a nonnegative integer"
+        ) from None
+    return RunManager(
+        checkpoint_directory=None if not directory else Path(directory),
+        autosave_ticks=autosave_ticks,
+    )
 
 
 def _playback_response(

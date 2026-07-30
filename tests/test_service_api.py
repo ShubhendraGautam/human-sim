@@ -153,6 +153,34 @@ class ServiceApiTests(unittest.TestCase):
             404,
         )
 
+    def test_checkpoint_can_be_downloaded_and_restored(self) -> None:
+        self.client.post("/api/v1/runs", json=self.create_payload)
+        self.client.post(
+            "/api/v1/runs/test-run/steps",
+            json={"ticks": 4},
+        )
+
+        exported = self.client.get(
+            "/api/v1/runs/test-run/checkpoint"
+        )
+        restored = self.client.post(
+            "/api/v1/checkpoints/restore",
+            json={
+                "run_id": "restored-run",
+                "checkpoint": exported.json(),
+            },
+        )
+
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(
+            exported.json()["checkpoint_kind"],
+            "resumable",
+        )
+        self.assertEqual(restored.status_code, 201)
+        self.assertEqual(restored.json()["run_id"], "restored-run")
+        self.assertEqual(restored.json()["status"], "paused")
+        self.assertEqual(restored.json()["tick"], 4)
+
     def test_playback_requests_are_strict(self) -> None:
         self.client.post("/api/v1/runs", json=self.create_payload)
 

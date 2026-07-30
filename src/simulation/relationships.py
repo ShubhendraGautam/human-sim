@@ -326,6 +326,51 @@ class RelationshipStore:
             for row, active in enumerate(self._active_rows)
         )
 
+    def restore_raw_rows(
+        self,
+        rows: Tuple[Tuple[bool, RawRow], ...],
+    ) -> None:
+        """Restore exact slot state into a newly created empty store."""
+
+        if self._active_rows:
+            raise ValueError("relationship rows require an empty store")
+        for row_index, (active, entries) in enumerate(rows):
+            if len(entries) != self.capacity:
+                raise ValueError(
+                    f"relationship row {row_index} has the wrong capacity"
+                )
+            count = 0
+            self._active_rows.append(1 if active else 0)
+            for entry in entries:
+                if len(entry) != 6:
+                    raise ValueError("invalid raw relationship entry")
+                (
+                    other_id,
+                    trust,
+                    balance,
+                    encounters,
+                    value_tick,
+                    last_seen_tick,
+                ) = entry
+                if other_id != EMPTY_AGENT_ID:
+                    count += 1
+                self._other_ids.append(int(other_id))
+                self._trust.append(float(trust))
+                self._balance.append(float(balance))
+                self._encounters.append(int(encounters))
+                self._value_ticks.append(int(value_tick))
+                self._last_seen_ticks.append(int(last_seen_tick))
+            if not active and count:
+                raise ValueError(
+                    "inactive relationship rows must contain no contacts"
+                )
+            self._entry_counts.append(count)
+            if active:
+                self._active_count += 1
+            else:
+                self._free_rows.append(row_index)
+        heapq.heapify(self._free_rows)
+
     def _get_or_create_offset(
         self,
         row: int,

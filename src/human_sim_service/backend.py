@@ -6,6 +6,7 @@ from typing import Dict, Mapping, Optional, Protocol, Tuple
 from src.simulation import knowledge
 from src.simulation import language
 from src.simulation import (
+    CHECKPOINT_SCHEMA_VERSION,
     CONFIG_SCHEMA_VERSION,
     GENOME_SCHEMA_VERSION,
     ActionKind,
@@ -84,6 +85,9 @@ class SimulationBackend(Protocol):
     def export_snapshot(self) -> Dict[str, object]:
         """Return the backend's full visualization/export snapshot."""
 
+    def export_checkpoint(self) -> Dict[str, object]:
+        """Return complete causal state for deterministic resumption."""
+
 
 class SimulationBackendFactory(Protocol):
     """Injectable constructor used by sessions and future engine backends."""
@@ -114,6 +118,15 @@ class PythonSimulationBackend:
             scenario=scenario,
         )
 
+    @classmethod
+    def from_checkpoint(
+        cls,
+        payload: Mapping[str, object],
+    ) -> "PythonSimulationBackend":
+        backend = cls.__new__(cls)
+        backend._simulation = Simulation.from_checkpoint(dict(payload))
+        return backend
+
     def advance(self, ticks: int) -> None:
         for _ in range(ticks):
             self._simulation.step()
@@ -129,6 +142,7 @@ class PythonSimulationBackend:
             model={
                 "model_version": MODEL_VERSION,
                 "snapshot_schema_version": SNAPSHOT_SCHEMA_VERSION,
+                "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
                 "config_schema_version": CONFIG_SCHEMA_VERSION,
                 "genome_schema_version": GENOME_SCHEMA_VERSION,
             },
@@ -461,6 +475,9 @@ class PythonSimulationBackend:
             include_relationships=True,
         )
 
+    def export_checkpoint(self) -> Dict[str, object]:
+        return self._simulation.checkpoint()
+
 
 def python_backend_factory(
     *,
@@ -473,6 +490,12 @@ def python_backend_factory(
         seed=seed,
         scenario=scenario,
     )
+
+
+def python_checkpoint_backend_factory(
+    payload: Mapping[str, object],
+) -> SimulationBackend:
+    return PythonSimulationBackend.from_checkpoint(payload)
 
 
 def _biography(

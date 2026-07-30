@@ -72,6 +72,7 @@ export interface ProtocolEnvelope {
 export interface ModelVersions {
   model_version: string;
   snapshot_schema_version: number;
+  checkpoint_schema_version: number;
   config_schema_version: number;
   genome_schema_version: number;
 }
@@ -126,6 +127,8 @@ export interface RunCapabilities {
   agent_detail: boolean;
   resource_layers: boolean;
   full_snapshot_export: boolean;
+  checkpoint_export: boolean;
+  checkpoint_restore: boolean;
   /**
    * Whether the engine can advance this run on its own clock. When it can,
    * Run and Pause hand the run to the service rather than driving it from a

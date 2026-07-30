@@ -96,6 +96,24 @@ class EntityRegistry:
 
         return self._next_id
 
+    def restore_claimed_ids(self, count: int) -> None:
+        """Restore the identity high-water mark into an empty registry.
+
+        Checkpoints retain identities that belonged to things no longer in
+        the world. Reissuing one would make a resumed run diverge even if all
+        currently living entities were restored correctly.
+        """
+
+        if (
+            not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 0
+        ):
+            raise ValueError("claimed identity count must be nonnegative")
+        if self._kind_of or self._next_id:
+            raise ValueError("claimed identities require an empty registry")
+        self._next_id = count
+
     def register(
         self,
         entity: Placeable,

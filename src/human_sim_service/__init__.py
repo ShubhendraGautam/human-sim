@@ -8,6 +8,7 @@ from .backend import (
     SimulationBackend,
     SimulationBackendFactory,
     python_backend_factory,
+    python_checkpoint_backend_factory,
 )
 from .contracts import (
     AGENT_DETAIL_KIND,
@@ -68,4 +69,5 @@ __all__ = [
     "SimulationBackendFactory",
     "plan_playback",
     "python_backend_factory",
+    "python_checkpoint_backend_factory",
 ]
