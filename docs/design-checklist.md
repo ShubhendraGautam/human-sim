@@ -170,6 +170,14 @@ that cannot answer them is scenery.
   asserted benefit. At equal starting population the arm adds 120 profiler
   calls per tick (0.46%); alternating wall-clock arms could not resolve a
   slowdown (35.94 vs 34.81 ms median), well inside the Track B budget.
+
+  **Long horizon:** this object stock does not persist under finite materials.
+  Across six paired 300-year seeds, 116.8 objects were built and all 116.8
+  decayed on average despite 2,074 maintenance actions; every treatment seed
+  ended with zero artifacts and zero remaining world or carried material.
+  Population was 14.7% lower at year 50 in every treatment seed, then mixed by
+  year 300. B3 must make renewal regimes explicit before this is read as a
+  durable long-run adaptation.
 - [ ] **B3 Climate and biome layers.** Spatially coherent, and added only
   where they create distinct ecological niches. A second resource that behaves
   like the first is a rename. Resources are distinguished by **renewal
@@ -186,6 +194,13 @@ that cannot answer them is scenery.
   must reproduce the current world arrays and digest exactly. A second carried
   resource waits until it has a renewal regime and action trade-off that food
   and material do not already express.
+
+  **Shared-conditions substrate built:** people and fauna now read an
+  immutable objective `LocalConditions` sample from the world. It contains no
+  biome name and makes no behavioral choice. Human physiology and brains, and
+  the fauna fixed policy, interpret the same values separately. Temperature
+  and moisture will extend this record only after the D2 matrix selects a
+  useful spatial scale.
 - [ ] **B4 Flora.** Plants must *replace* the food renewal formula, not sit
   beside it. Acceptance: with flora off, food renews as it does today; with
   flora on, food exists where plants are, and clearing an area has
@@ -547,11 +562,18 @@ purpose, not a contradiction.
   reportable before a long run is committed to — not to prevent the choice.
 
   **Prepared.** Both outcome and timing harnesses accept an explicit world
-  matrix. The first comparison crosses 200 and 800 founders with 64x64 and
-  128x128 worlds: 200/128x128 isolates sparsity, while 800/128x128 restores
-  the current founder density. B3 starts only after this reports encounter,
+  matrix. The first comparison crosses 80 and 320 founders with 24x24 and
+  48x48 pressure worlds: 80/48x48 isolates sparsity, while 320/48x48 restores
+  the pressure-world founder density. B3 starts only after this reports encounter,
   reproduction, disease, population, and per-tick consequences rather than
   assuming that a larger canvas is the same simulation enlarged.
+
+  **Cost gate measured.** At 80 founders, increasing 24x24 to 48x48 cells
+  moved mean tick cost from 18.0 to 26.4 ms (+47%). At 320 founders, the same
+  worlds cost 92.0 and 78.1 ms; crowding makes the smaller world slower.
+  Scaling both area and population by four cost 4.35x, showing that population
+  and local density already dominate area at this scale. The
+  six-seed, 100-year demographic matrix is the remaining D2 acceptance run.
 - [ ] **D3 Then, and only then, the native kernel.** D2 pushes on `_decide`,
   which is ~70% of a tick and the thing pure-Python tuning has already given
   up about 1.15x on. This is where a C, Rust, or array-backed decision kernel

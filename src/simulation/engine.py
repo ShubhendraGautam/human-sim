@@ -769,8 +769,9 @@ class Simulation:
             # helper call, subtraction, or extra random draw occurs, so old
             # digests remain byte-for-byte reproducible.
             if exposure_cost > 0.0:
+                conditions = self.world.local_conditions(agent.x, agent.y)
                 requested = exposure_energy_cost(
-                    self.world.season_at(agent.y),
+                    conditions.season,
                     exposure_cost,
                     elapsed_years,
                     self._insulation_at(agent.x, agent.y),
@@ -1018,17 +1019,13 @@ class Simulation:
             1.0
             - agent.material_inventory / config.material_inventory_capacity
         )
-        current_resource = self.world.resource_at(agent.x, agent.y)
-        current_material = self.world.material_at(agent.x, agent.y)
+        conditions = self.world.local_conditions(agent.x, agent.y)
+        current_resource = conditions.food
+        current_material = conditions.material
         local_artifacts = self._artifacts_at(agent.x, agent.y)
         stored_food = sum(item.food_stored for item in local_artifacts)
         storage_room = sum(item.storage_room for item in local_artifacts)
-        cell_capacity = self.world.capacity[
-            self.world.cell_index(agent.x, agent.y)
-        ]
-        resource_fraction = (
-            current_resource / cell_capacity if cell_capacity else 0.0
-        )
+        resource_fraction = conditions.food_fraction
         capability = self._capability(agent)
         physical_capacity = capability * (
             1.0
@@ -1052,7 +1049,7 @@ class Simulation:
                 1.0,
                 current_material / max(config.material_cell_capacity, 1e-9),
             ),
-            season=self.world.season_at(agent.y),
+            season=conditions.season,
             animal_near=quarry is not None,
             on_coast=self.world.is_coast(agent.x, agent.y),
             remembered_place=(

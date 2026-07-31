@@ -303,10 +303,8 @@ class Herd:
             # maximum regrowth, take all of it, and leave nothing standing
             # for anything else. With it, thin grass feeds fewer animals,
             # the herd shrinks, and the grass comes back.
-            cell = world.try_cell_index(animal.x, animal.y)
-            available = 0.0
-            if cell is not None and world.capacity[cell] > 0.0:
-                available = world.resources[cell] / world.capacity[cell]
+            conditions = world.local_conditions(animal.x, animal.y)
+            available = conditions.food_fraction
             grazed = world.harvest(
                 animal.x,
                 animal.y,

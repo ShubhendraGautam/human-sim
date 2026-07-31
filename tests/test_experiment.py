@@ -216,6 +216,7 @@ class TransientTests(unittest.TestCase):
         self.assertEqual(record["code_revision"], "abc123-dirty")
         self.assertEqual(record["config"], request["config"])
         self.assertIsNone(record["scenario"])
+        self.assertEqual(len(record["construction_fingerprint"]), 64)
 
     def test_checkpoints_record_the_population_on_the_way(self) -> None:
         """Equilibrium is set by the land; the transient is where a
@@ -290,6 +291,24 @@ class PairingTests(unittest.TestCase):
         )
         self.assertIn("did not start from the same world", report)
         self.assertIn("neural_output_weight=0", report)
+
+    def test_an_independent_action_row_is_not_a_pairing_failure(self) -> None:
+        """Artifact output weights use a keyed stream, not founder draws."""
+
+        control = run_once(task("on", 7, {}, ticks=0))
+        switched = run_once(
+            task("off", 7, {"artifacts_enabled": False}, ticks=0)
+        )
+
+        self.assertNotEqual(control["opening"], switched["opening"])
+        self.assertEqual(
+            control["construction_fingerprint"],
+            switched["construction_fingerprint"],
+        )
+        self.assertEqual(
+            pairing_warnings([control, switched], ["on", "off"]),
+            [],
+        )
 
     def test_a_run_is_reproducible(self) -> None:
         first = run_once(task("on", 3, {}))

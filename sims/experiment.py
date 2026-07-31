@@ -28,6 +28,7 @@ dress up the ones that do not.
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -117,6 +118,9 @@ def run_once(task: Dict[str, Any]) -> Dict[str, Any]:
         scenario=scenario,
     )
     opening = simulation.measure().to_dict()
+    construction_fingerprint = hashlib.sha256(
+        repr(simulation.rng.getstate()).encode("utf-8")
+    ).hexdigest()
 
     ticks = task["ticks"]
     per_year = max(1, int(config.ticks_per_year))
@@ -152,6 +156,7 @@ def run_once(task: Dict[str, Any]) -> Dict[str, Any]:
         "scenario": task["scenario"],
         "overrides": task["overrides"],
         "opening": opening,
+        "construction_fingerprint": construction_fingerprint,
         "final": closing,
     }
     for year, population in checkpoints.items():
@@ -324,14 +329,20 @@ def pairing_warnings(
     experiment without the flaw — the networks are still built, they simply
     do not contribute.
 
-    Rather than trust the author to know which settings are safe, this
-    compares the opening measurement and says when they are not.
+    Rather than trust the author to know which settings are safe, new records
+    compare the engine random-stream state immediately after construction.
+    That detects skipped or added founder/world draws while allowing a setting
+    to change its own opening metric. Older records fall back to comparing the
+    full opening measurement.
     """
 
-    openings: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    openings: Dict[int, Dict[str, object]] = {}
     for record in records:
         openings.setdefault(record["seed"], {})[record["arm"]] = (
-            record.get("opening", {})
+            record.get(
+                "construction_fingerprint",
+                record.get("opening", {}),
+            )
         )
     broken = sorted(
         seed

@@ -186,6 +186,15 @@ input, not an artifact label, so a future structure can reduce the cost
 without either layer learning what a house is. Materials are nonrenewable by
 default.
 
+`World.local_conditions()` is the organism-facing physical boundary. It
+returns one immutable `LocalConditions` reading—terrain, food and capacity,
+material and capacity, and season—with no species label or preferred action.
+People translate it into physiology and bounded neural senses; fauna reads the
+same food fraction through its cheap fixed policy. Future flora and B3 climate
+fields extend this physical record rather than creating a parallel world per
+kind. Equal coordinates therefore mean equal external conditions, not equal
+experience or behavior.
+
 Renewal is expressed as a share of the remaining deficit and swept a row at a
 time. A full cell then grows by nothing without needing a special case, an
 unproductive cell stays at zero on its own, and the season is hoisted out of

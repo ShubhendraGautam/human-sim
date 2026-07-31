@@ -1,10 +1,43 @@
 import unittest
 from dataclasses import replace
 
-from src.simulation import ReproductiveRole, Simulation, SimulationConfig
+from src.simulation import (
+    ReproductiveRole,
+    Simulation,
+    SimulationConfig,
+    Terrain,
+)
 
 
 class SimulationTests(unittest.TestCase):
+    def test_local_conditions_are_one_objective_world_reading(self) -> None:
+        simulation = Simulation(
+            SimulationConfig(
+                width=3,
+                height=2,
+                initial_population=0,
+                initial_fauna_density=0.0,
+            ),
+            seed=2,
+        )
+        index = simulation.world.cell_index(1, 1)
+        simulation.world.resources[index] = 3.0
+        simulation.world.capacity[index] = 12.0
+        simulation.world.materials[index] = 2.0
+        simulation.world.material_capacity[index] = 8.0
+        simulation.world.last_row_factors[1] = 1.3
+
+        conditions = simulation.world.local_conditions(1, 1)
+
+        self.assertIs(conditions.terrain, Terrain.LAND)
+        self.assertEqual(conditions.food, 3.0)
+        self.assertEqual(conditions.food_capacity, 12.0)
+        self.assertEqual(conditions.food_fraction, 0.25)
+        self.assertEqual(conditions.material, 2.0)
+        self.assertEqual(conditions.material_capacity, 8.0)
+        self.assertEqual(conditions.material_fraction, 0.25)
+        self.assertAlmostEqual(conditions.season, 0.3)
+
     def test_same_seed_and_config_are_reproducible(self) -> None:
         config = SimulationConfig(
             width=10,

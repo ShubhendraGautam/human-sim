@@ -38,7 +38,46 @@ Promotion criterion: a direct physical effect such as shelter or stored food
 must persist across seeds. Population is allowed to be a trade-off, but it
 must be reported rather than hidden behind the physical effect.
 
-## 2. Cultural policy transmission over 300 years
+**Result:** the persistence criterion failed. Treatment seeds built and then
+lost 116.8 artifacts on average, and all six ended with no artifacts or
+material. Population was 14.7% lower at year 50 in every treatment seed and
+mixed by year 300. See `docs/findings.md`; B3's renewal regimes now precede
+another durability claim.
+
+## 2. D2 world-area and population matrix
+
+**Question:** Which effects come from a larger canvas, which come from lower
+founder density, and which come from scaling the population with the area?
+
+Measure cost first:
+
+```bash
+python3 -m sims.profile_engine --config configs/pressure.json \
+  --world-sizes 24x24,48x48 --populations 80,320 \
+  --seeds 0,1 --ticks 20 --no-projection \
+  > .run/experiments/d2-cost-matrix.jsonl
+```
+
+Then measure demographic consequences:
+
+```bash
+python3 -u -m sims.scaling_experiment --config configs/pressure.json \
+  --world-sizes 24x24,48x48 --populations 80,320 \
+  --seeds 0,1,2,3,4,5 --ticks 1200 \
+  > .run/experiments/d2-demographic-matrix.jsonl
+```
+
+The four cells separate the comparisons: 80/48x48 isolates sparsity;
+320/48x48 restores the pressure-world founder density; 320/24x24 exposes
+crowding. `baseline.json` is intentionally excluded: its approximately
+13,000-person ceiling is an abundance and runtime test, not a selective D2
+ecology.
+Read population beside births, isolation, remembered/social connections,
+infections, body condition, and resource fraction. Promotion criterion: B3
+uses the smallest world/population scale that creates persistent spatially
+distinct populations without making local interaction vanish.
+
+## 3. Cultural policy transmission over 300 years
 
 **Question:** Do local policy lineages spread, and does a lineage that spreads
 improve survival rather than merely make nearby people more alike?
@@ -60,7 +99,7 @@ Promotion criterion: transmission must occur across seeds and its lineage
 metrics must be interpretable beside survival. Spread alone does not justify
 enabling it; a copied bad policy is still a successful transmission.
 
-## 3. Neural maintenance over 1,500 years
+## 4. Neural maintenance over 1,500 years
 
 **Question:** Does charging for inherited network magnitude turn the observed
 mutation ratchet into a selectable trade-off, or merely reduce population?
@@ -84,7 +123,7 @@ setsid nohup ./run.sh experiment \
 Promotion criterion: upkeep must change the magnitude trajectory, not only
 charge energy. If magnitude is unchanged and population falls, it stays off.
 
-## 4. Recurrent memory over 1,500 years
+## 5. Recurrent memory over 1,500 years
 
 **Question:** Can inherited temporal memory improve outcomes or retain a
 distinct policy after enough generations for selection to act?
@@ -105,7 +144,7 @@ Promotion criterion: recurrence must produce a repeatable outcome or policy
 difference that clears its measured runtime cost. Capability alone is not a
 result.
 
-## 5. Lifetime plasticity over 3,000 years
+## 6. Lifetime plasticity over 3,000 years
 
 **Question:** Was plasticity rejected because its noisy update rule is harmful,
 or because the earlier experiment ended before evolved brains began to pay?

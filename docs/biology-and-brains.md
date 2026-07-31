@@ -91,6 +91,15 @@ guardian, including as bounded vessel passengers, and either living parent can
 provide care. Physical capability rises continuously between dependency and
 maturity instead of changing from child to adult in one tick.
 
+The external world does not change its reading to suit the observer. A person
+and an animal at one cell receive the same objective local food, material,
+terrain, and season. People turn that reading into bodily exposure and neural
+senses; age, condition, inherited weights, memory, and learned overlays can
+therefore make the response differ. Biological maturity limits feasible work
+even with neural growth off. Optional neural growth changes processing
+capacity by bringing inherited hidden units online over a lifetime; it does
+not invent a different temperature or food stock for a younger brain.
+
 ## Nutrition, development, and aging
 
 Energy is immediate fuel. Body condition is an exponential history of energy

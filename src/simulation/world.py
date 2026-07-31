@@ -1,6 +1,7 @@
 import math
 import random
 from array import array
+from dataclasses import dataclass
 from typing import (
     Dict,
     Iterable,
@@ -15,6 +16,41 @@ from .config import SimulationConfig
 from .entities import EntityKind, Placeable
 from .models import Agent, Terrain
 from .scenario import Scenario
+
+
+@dataclass(frozen=True, slots=True)
+class LocalConditions:
+    """One objective reading of the physical cell under an organism.
+
+    This is not perception and contains no organism-specific judgement. A
+    person, grazer, and future plant at the same coordinates receive the same
+    values; physiology and behavior decide what those values mean to each.
+    Keeping amounts beside capacities also avoids baking a preferred
+    normalization into the world.
+    """
+
+    terrain: Terrain
+    food: float
+    food_capacity: float
+    material: float
+    material_capacity: float
+    season: float
+
+    @property
+    def food_fraction(self) -> float:
+        return (
+            self.food / self.food_capacity
+            if self.food_capacity > 0.0
+            else 0.0
+        )
+
+    @property
+    def material_fraction(self) -> float:
+        return (
+            self.material / self.material_capacity
+            if self.material_capacity > 0.0
+            else 0.0
+        )
 
 
 class World:
@@ -278,6 +314,20 @@ class World:
 
     def material_at(self, x: int, y: int) -> float:
         return self.materials[self.cell_index(x, y)]
+
+    def local_conditions(self, x: int, y: int) -> LocalConditions:
+        """Return physical conditions without interpreting them for a kind."""
+
+        index = self.cell_index(x, y)
+        _, normalized_y = self.coordinates(index)
+        return LocalConditions(
+            terrain=Terrain(self.terrain[index]),
+            food=self.resources[index],
+            food_capacity=self.capacity[index],
+            material=self.materials[index],
+            material_capacity=self.material_capacity[index],
+            season=self.season_at(normalized_y),
+        )
 
     def harvest(self, x: int, y: int, requested: float) -> float:
         amount = self._harvest_layer(self.resources, x, y, requested)

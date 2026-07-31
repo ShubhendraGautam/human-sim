@@ -109,14 +109,48 @@ only band where a mechanism that helps people eat can show up as more people.
 
 ---
 
+## Finite materials make the current artifacts transient
+
+Over 300 years in `configs/pressure.json`, the artifact arm built 116.8
+objects per seed on average and performed 2,074 maintenance actions. Every
+object nevertheless decayed in every seed, leaving zero shelter, stored food,
+world material, or carried material at year 300. The mechanism is active, but
+the current finite material regime cannot sustain its stock.
+
+The demographic effect changed sign over time. At year 50 the artifact arm
+had 115.0 people against 134.8 without artifacts, lower in all six paired seeds
+(`p = 0.031`). By year 300 it had 172.5 against 159.3, but only four seeds
+favored artifacts (`p = 0.688`). Final energy and body-condition differences
+were likewise mixed. This does not clear the experiment queue's persistence
+criterion: B3's renewal regimes must be explicit before artifact durability is
+interpreted as an evolved long-run advantage.
+
+The raw run's older pairing check warns because enabling artifacts adds one
+brain output and therefore changes opening network-summary metrics. Direct
+inspection found those were the only opening differences; founder bodies,
+positions, genomes, legacy weights, and the engine construction stream match.
+The harness now fingerprints that construction stream instead of treating an
+intended mechanism metric as evidence of shifted random draws.
+
+```bash
+./run.sh experiment --arm off=artifacts_enabled=false --arm base \
+  --config configs/pressure.json --seeds 0,1,2,3,4,5 --years 300 \
+  --checkpoint-years 10,50,100 \
+  --metric population --metric population_at_50 \
+  --metric artifact_count --metric sheltered_population --jobs 2
+```
+
+---
+
 ## Method notes worth keeping
 
 - **`neural_brains_enabled=false` is not a valid off switch for a comparison.**
   Skipping the network weight draws shifts every later random draw, so the
   arms get different founders in different places and the result comes with a
   different world attached. `neural_output_weight=0` leaves construction
-  untouched. The harness checks the opening state across arms and says when
-  they diverged.
+  untouched. The harness fingerprints the engine random stream immediately
+  after construction, so it detects shifted draws without mistaking an
+  intended opening mechanism metric for a different world.
 - **Six paired seeds is the floor.** The best possible two-sided sign-test
   p-value at `n` seeds is `2/2ⁿ`, so four unanimous seeds cap out at 0.125 no
   matter how large the effect.

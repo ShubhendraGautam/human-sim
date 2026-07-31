@@ -105,12 +105,13 @@ Use an explicit world matrix for D2's sparse-versus-density-matched question:
 
 ```bash
 python3 -m sims.scaling_experiment \
-  --config configs/baseline.json --world-sizes 64x64,128x128 \
-  --populations 200,800 --seeds 0,1,2,3,4,5 --ticks 1200
+  --config configs/pressure.json --world-sizes 24x24,48x48 \
+  --populations 80,320 --seeds 0,1,2,3,4,5 --ticks 1200
 ```
 
-This crosses every population with every world size. The `200 / 128x128` arm
-isolates sparsity, while `800 / 128x128` restores the default founder density.
+This crosses every population with every world size. The `80 / 48x48` arm
+isolates sparsity, while `320 / 48x48` restores the pressure-world founder
+density.
 Each record includes `founders_per_cell` so those cases remain explicit.
 
 Measure engine and projection cost:

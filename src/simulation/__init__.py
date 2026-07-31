@@ -44,6 +44,7 @@ from . import neural
 from .scenario import CountrySpec, Rectangle, Scenario
 from .relationships import RelationshipStore, RelationshipView
 from .versions import CHECKPOINT_SCHEMA_VERSION
+from .world import LocalConditions
 
 __all__ = [
     "ActionKind",
@@ -59,6 +60,7 @@ __all__ = [
     "Event",
     "INERT_KINDS",
     "LIVING_KINDS",
+    "LocalConditions",
     "Gene",
     "Genome",
     "GENOME_SCHEMA_VERSION",
