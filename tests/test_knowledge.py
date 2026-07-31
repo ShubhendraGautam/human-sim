@@ -154,6 +154,86 @@ class EngineTest(unittest.TestCase):
 
         self.assertFalse(simulation._teach(teacher, learner.id))
 
+    def test_teaching_can_transmit_a_policy_and_its_lineage(self) -> None:
+        simulation = learner_world(policy_teaching_rate=1.0)
+        first, second, third = (
+            simulation.agents[agent_id]
+            for agent_id in sorted(simulation.agents)[:3]
+        )
+        second.x, second.y = first.x, first.y
+        third.x, third.y = first.x, first.y
+        for agent in (first, second, third):
+            agent.known_techniques = 0
+        first.network.output[0][0] = 0.9
+        second.network.output[0][0] = -0.4
+        third.network.output[0][0] = -0.8
+
+        self.assertTrue(simulation._teach(first, second.id))
+        self.assertTrue(simulation._teach(second, third.id))
+
+        self.assertEqual(second.brain.policy_teacher_id, first.id)
+        self.assertEqual(second.brain.policy_origin_id, first.id)
+        self.assertEqual(second.brain.policy_generation, 1)
+        self.assertEqual(third.brain.policy_teacher_id, second.id)
+        self.assertEqual(third.brain.policy_origin_id, first.id)
+        self.assertEqual(third.brain.policy_generation, 2)
+        self.assertEqual(simulation.total_policy_transmissions, 2)
+        self.assertEqual(simulation.events[-1].kind, "teach_policy")
+        self.assertEqual(simulation.events[-1].actors, (second.id, third.id))
+        self.assertEqual(
+            dict(simulation.events[-1].details),
+            {"origin": float(first.id), "generation": 2.0},
+        )
+        metrics = simulation.measure()
+        self.assertEqual(metrics.taught_policy_population, 2)
+        self.assertEqual(metrics.taught_policy_lineages, 1)
+        self.assertEqual(metrics.policy_transmissions, 2)
+
+    def test_policy_teaching_requires_local_contact(self) -> None:
+        simulation = learner_world(policy_teaching_rate=1.0)
+        teacher, learner = (
+            simulation.agents[agent_id]
+            for agent_id in sorted(simulation.agents)[:2]
+        )
+        teacher.known_techniques = learner.known_techniques = 0
+        teacher.network.output[0][0] = 0.9
+        learner.network.output[0][0] = -0.4
+        learner.x = (teacher.x + 5) % simulation.config.width
+        learner.y = (teacher.y + 5) % simulation.config.height
+
+        self.assertFalse(simulation._teach(teacher, learner.id))
+        self.assertEqual(simulation.total_policy_transmissions, 0)
+
+    def test_policy_teaching_does_not_assume_the_policy_is_a_benefit(
+        self,
+    ) -> None:
+        simulation = learner_world(
+            policy_teaching_rate=1.0,
+            cultural_transmission_rate=1.0,
+        )
+        teacher, learner = (
+            simulation.agents[agent_id]
+            for agent_id in sorted(simulation.agents)[:2]
+        )
+        learner.x, learner.y = teacher.x, teacher.y
+        teacher.known_techniques = learner.known_techniques = 0
+        teacher.network.output[0][0] = 0.9
+        learner.network.output[0][0] = -0.4
+        culture_before = learner.culture
+
+        self.assertTrue(simulation._teach(teacher, learner.id))
+
+        self.assertEqual(learner.culture, culture_before)
+        relationship = simulation.relationships.view(
+            learner.relationship_slot,
+            teacher.id,
+            simulation.tick,
+        )
+        self.assertIsNotNone(relationship)
+        self.assertEqual(relationship.encounters, 1)
+        self.assertEqual(relationship.trust, 0.0)
+        self.assertEqual(relationship.balance, 0.0)
+
     def test_a_learned_technique_changes_what_someone_can_do(self) -> None:
         toolmaking = knowledge.BY_NAME["toolmaking"]
         mask = knowledge.with_technique(0, toolmaking)

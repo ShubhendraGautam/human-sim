@@ -3,7 +3,7 @@ import random
 from array import array
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Iterable, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Iterable, List, Mapping, Optional, Tuple
 
 from .config import SimulationConfig
 from .models import (
@@ -16,6 +16,9 @@ from .models import (
 
 ACTION_KINDS = tuple(ActionKind)
 ACTION_INDEX = {kind: index for index, kind in enumerate(ACTION_KINDS)}
+
+if TYPE_CHECKING:
+    from .neural import Network
 
 
 @dataclass(slots=True)
@@ -47,6 +50,14 @@ class BrainState:
     last_success: float = 0.0
     last_target_id: int = -1
     last_action_tick: int = -1
+    # The most recent cultural policy contribution. These are provenance-only:
+    # scoring and adoption never read them to decide whether a policy is good.
+    # Received policy remains in the lifetime overlay and is never passed
+    # through neural.inherit().
+    policy_teacher_id: int = -1
+    policy_origin_id: int = -1
+    policy_generation: int = 0
+    policy_taught_tick: int = -1
 
     def preference(self, action: Action) -> float:
         return self.preferences[ACTION_INDEX[action.kind]]
@@ -89,6 +100,103 @@ class BrainState:
             row[unit] = min(limit, max(-limit, updated))
             changed = True
         return changed
+
+    def adopt_policy(
+        self,
+        teacher: "BrainState",
+        teacher_network: "Network",
+        learner_network: "Network",
+        rate: float,
+        limit: float,
+    ) -> bool:
+        """Blend a teacher's effective output into this lifetime overlay.
+
+        The inherited matrices are inputs and are never written. At a rate of
+        one, the learner's effective output matches the teacher wherever both
+        brains have an active unit; smaller rates approach it. Different brain
+        ceilings therefore remain teachable without allocating or evaluating
+        anything beyond the learner's existing bounded shape. This operation
+        deliberately has no reward, survival, or lineage input: it copies the
+        policy presented to it without declaring that policy fit.
+        """
+
+        if rate <= 0.0:
+            return False
+        outputs = min(teacher_network.outputs, learner_network.outputs)
+        units = min(teacher_network.active, learner_network.active)
+        if outputs <= 0 or units <= 0:
+            return False
+        teacher_plastic = teacher.plastic
+        changed = False
+        for output in range(outputs):
+            learner_row = (
+                self.plastic[output] if self.plastic is not None else None
+            )
+            teacher_overlay = (
+                teacher_plastic[output]
+                if teacher_plastic is not None
+                and output < len(teacher_plastic)
+                else None
+            )
+            for unit in range(units):
+                teacher_effective = teacher_network.output[output][unit]
+                if teacher_overlay is not None and unit < len(teacher_overlay):
+                    teacher_effective += teacher_overlay[unit]
+                learner_effective = (
+                    learner_network.output[output][unit]
+                    + (learner_row[unit] if learner_row is not None else 0.0)
+                )
+                delta = rate * (teacher_effective - learner_effective)
+                if delta == 0.0:
+                    continue
+                current = learner_row[unit] if learner_row is not None else 0.0
+                updated = min(limit, max(-limit, current + delta))
+                if updated != current:
+                    if self.plastic is None:
+                        self.plastic = [
+                            [0.0] * learner_network.units
+                            for _ in range(learner_network.outputs)
+                        ]
+                    learner_row = self.plastic[output]
+                    learner_row[unit] = updated
+                    changed = True
+        return changed
+
+    def policy_distance(
+        self,
+        other: "BrainState",
+        network: "Network",
+        other_network: "Network",
+    ) -> float:
+        """Mean effective-output difference on the two shared brain shapes."""
+
+        outputs = min(network.outputs, other_network.outputs)
+        units = min(network.active, other_network.active)
+        if outputs <= 0 or units <= 0:
+            return 0.0
+        total = 0.0
+        count = 0
+        for output in range(outputs):
+            own_overlay = (
+                self.plastic[output]
+                if self.plastic is not None and output < len(self.plastic)
+                else None
+            )
+            other_overlay = (
+                other.plastic[output]
+                if other.plastic is not None and output < len(other.plastic)
+                else None
+            )
+            for unit in range(units):
+                own = network.output[output][unit]
+                seen = other_network.output[output][unit]
+                if own_overlay is not None and unit < len(own_overlay):
+                    own += own_overlay[unit]
+                if other_overlay is not None and unit < len(other_overlay):
+                    seen += other_overlay[unit]
+                total += abs(own - seen)
+                count += 1
+        return total / count if count else 0.0
 
     @property
     def plasticity_magnitude(self) -> float:

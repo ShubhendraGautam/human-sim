@@ -24,6 +24,9 @@ describe("describeEvent", () => {
     expect(describeEvent(event("share", 4, ["7", "9"]))).toBe(
       "#7 shared food with #9",
     );
+    expect(describeEvent(event("teach_policy", 4, ["7", "9"]))).toBe(
+      "#7 passed a policy to #9",
+    );
   });
 
   it("leaves out a second person when the act has none", () => {
@@ -55,6 +58,7 @@ describe("event importance", () => {
       "landfall",
       "drowned",
       "teach",
+      "teach_policy",
     ]) {
       expect(eventImportance(kind)).toBe("landmark");
     }

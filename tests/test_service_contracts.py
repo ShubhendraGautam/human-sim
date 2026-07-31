@@ -231,6 +231,8 @@ class ServiceContractTests(unittest.TestCase):
         self.assertIn("genome", detail["agent"]["biology"])
         self.assertIn("traits", detail["agent"]["biology"])
         self.assertIn("preferences", detail["agent"]["brain"])
+        self.assertIn("policy_origin_id", detail["agent"]["brain"])
+        self.assertIn("policy_teacher_id", detail["agent"]["brain"])
         self.assertIn("relationships", detail["agent"])
         for relationship in detail["agent"]["relationships"]:
             self.assertIsInstance(relationship["agent_id"], str)

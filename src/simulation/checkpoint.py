@@ -523,6 +523,10 @@ def _brain_to_data(brain: BrainState) -> Dict[str, object]:
         "last_success": brain.last_success,
         "last_target_id": brain.last_target_id,
         "last_action_tick": brain.last_action_tick,
+        "policy_teacher_id": brain.policy_teacher_id,
+        "policy_origin_id": brain.policy_origin_id,
+        "policy_generation": brain.policy_generation,
+        "policy_taught_tick": brain.policy_taught_tick,
     }
 
 
@@ -546,6 +550,22 @@ def _brain_from_data(payload: Mapping[str, object]) -> BrainState:
         last_action_tick=_integer(
             payload.get("last_action_tick"),
             "last_action_tick",
+        ),
+        policy_teacher_id=_integer(
+            payload.get("policy_teacher_id"),
+            "policy_teacher_id",
+        ),
+        policy_origin_id=_integer(
+            payload.get("policy_origin_id"),
+            "policy_origin_id",
+        ),
+        policy_generation=_integer(
+            payload.get("policy_generation"),
+            "policy_generation",
+        ),
+        policy_taught_tick=_integer(
+            payload.get("policy_taught_tick"),
+            "policy_taught_tick",
         ),
     )
 
@@ -773,6 +793,7 @@ _COUNTER_FIELDS = (
     "total_deaths",
     "total_pregnancy_losses",
     "total_inventions",
+    "total_policy_transmissions",
     "total_sea_crossings",
     "total_infections",
     "total_coinages",

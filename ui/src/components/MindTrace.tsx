@@ -114,6 +114,12 @@ export function MindTrace({ frame, manifest, yearly }: MindTraceProps) {
       : changePercent(first.mind, last.mind);
   const plasticityRate = configuredNumber(manifest, "plasticity_rate");
   const learningOff = plasticityRate !== null && plasticityRate <= 0;
+  const policyTeachingRate = configuredNumber(
+    manifest,
+    "policy_teaching_rate",
+  );
+  const policyTeachingOn =
+    policyTeachingRate !== null && policyTeachingRate > 0;
 
   const readPointer = (event: PointerEvent<SVGSVGElement>): void => {
     if (points.length === 0) {
@@ -269,6 +275,13 @@ export function MindTrace({ frame, manifest, yearly }: MindTraceProps) {
           {precise(frame.metrics.mean_vocabulary)} words ·{" "}
           {compact(frame.metrics.inventions)} inventions
         </span>
+        {policyTeachingOn ? (
+          <span>
+            <Icon name="users" size={13} />
+            {compact(frame.metrics.taught_policy_population)} taught ·{" "}
+            {compact(frame.metrics.taught_policy_lineages)} policy lineages
+          </span>
+        ) : null}
         <span className="timeline-buffer">
           {percent(frame.metrics.action_entropy)} action variety
         </span>

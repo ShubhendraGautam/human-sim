@@ -399,6 +399,16 @@ export function PersonInspector({
             {percent(agent.brain.last_success)}
           </span>
         </div>
+        {agent.brain.policy_origin_id === null ? null : (
+          <div className="inventory-row">
+            <span>
+              <Icon name="users" size={13} />
+              Policy lineage #{agent.brain.policy_origin_id} · taught by #
+              {agent.brain.policy_teacher_id} · hop {agent.brain.policy_generation}
+            </span>
+            <span>tick {agent.brain.policy_taught_tick}</span>
+          </div>
+        )}
         <div className="culture-grid">
           {Object.entries(agent.culture).map(([name, value]) => (
             <Meter

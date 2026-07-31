@@ -400,6 +400,9 @@ function buildMetrics(tick: number, agents: AgentColumns): SimulationMetrics {
     mean_brain_units: 6,
     mean_plasticity: 0.04 + Math.sin(tick * 0.02) * 0.01,
     policy_diversity: 0.12,
+    taught_policy_population: 0,
+    taught_policy_lineages: 0,
+    policy_transmissions: 0,
     mean_remembered_places: 3.1,
     age_bands: {
       juvenile: agents.age.filter((age) => age < 16).length,
@@ -709,6 +712,10 @@ function buildAgentDetail(
           ? String(1001 + ((index + 7) % DEMO_POPULATION))
           : null,
       last_action_tick: frame.tick,
+      policy_teacher_id: null,
+      policy_origin_id: null,
+      policy_generation: 0,
+      policy_taught_tick: -1,
       preferences: {
         gather: 0.35 + hash(index + 57, frame.tick) * 0.5,
         share: 0.2 + hash(index + 63, frame.tick) * 0.55,

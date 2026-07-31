@@ -162,9 +162,10 @@ The UI protocol has its own `protocol_version` and projection
 configuration, and genome versions. These numbers answer different
 compatibility questions and must not be collapsed into one value. Manifest,
 frame, and agent-detail schemas are versioned independently, and they have
-already diverged: the manifest and event feed are at 1, the frame is at 2 (it
-carries the herd), and agent detail is at 2 (it carries a biography for the
-dead).
+already diverged: the manifest is at 2, the event feed at 1, the frame started
+carrying the herd at 2 and is now at 5 after environmental, artifact, and
+policy-transmission metrics, while agent detail is at 3 (it carries both a
+biography for the dead and cultural policy lineage).
 
 A client therefore states which versions of each kind it can read, not one
 version for everything. Collapsing them into a single constant makes an

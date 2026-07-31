@@ -47,6 +47,36 @@ class CheckpointTests(unittest.TestCase):
         restored.run(30)
         self.assertEqual(restored.state_digest(), original.state_digest())
 
+    def test_checkpoint_retains_taught_policy_lineage(self) -> None:
+        simulation = Simulation(
+            SimulationConfig(
+                width=8,
+                height=8,
+                initial_population=8,
+                initial_fauna_density=0.0,
+                policy_teaching_rate=1.0,
+            ),
+            seed=9,
+        )
+        teacher, learner = (
+            simulation.agents[agent_id]
+            for agent_id in sorted(simulation.agents)[:2]
+        )
+        learner.x, learner.y = teacher.x, teacher.y
+        teacher.known_techniques = learner.known_techniques = 0
+        teacher.network.output[0][0] = 0.8
+        learner.network.output[0][0] = -0.4
+        self.assertTrue(simulation._teach(teacher, learner.id))
+
+        restored = Simulation.from_checkpoint(simulation.checkpoint())
+        restored_learner = restored.agents[learner.id]
+
+        self.assertEqual(restored_learner.brain.policy_teacher_id, teacher.id)
+        self.assertEqual(restored_learner.brain.policy_origin_id, teacher.id)
+        self.assertEqual(restored_learner.brain.policy_generation, 1)
+        self.assertEqual(restored.total_policy_transmissions, 1)
+        self.assertEqual(restored.state_digest(), simulation.state_digest())
+
     def test_checkpoint_is_not_a_visualization_snapshot(self) -> None:
         simulation = exercised_run()
 

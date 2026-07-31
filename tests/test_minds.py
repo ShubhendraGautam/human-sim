@@ -232,6 +232,85 @@ class PlasticityTests(unittest.TestCase):
         self.assertGreater(SimulationConfig().plasticity_energy_cost, 0.0)
 
 
+class PolicyTransmissionTests(unittest.TestCase):
+    def test_teaching_blends_effective_policy_not_inherited_weights(
+        self,
+    ) -> None:
+        teacher = BrainState()
+        learner = BrainState()
+        teacher_network = Network(2, len(ActionKind))
+        learner_network = Network(2, len(ActionKind))
+        teacher_network.output[0][0] = 0.8
+        learner_network.output[0][0] = -0.2
+
+        changed = learner.adopt_policy(
+            teacher,
+            teacher_network,
+            learner_network,
+            rate=0.5,
+            limit=1.5,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(learner_network.output[0][0], -0.2)
+        self.assertAlmostEqual(learner.plastic[0][0], 0.5)
+        self.assertAlmostEqual(
+            learner_network.output[0][0] + learner.plastic[0][0],
+            0.3,
+        )
+
+    def test_policy_teaching_is_bounded_by_the_lifetime_limit(self) -> None:
+        teacher = BrainState()
+        learner = BrainState()
+        teacher_network = Network(1, len(ActionKind))
+        learner_network = Network(1, len(ActionKind))
+        teacher_network.output[0][0] = 20.0
+
+        learner.adopt_policy(
+            teacher,
+            teacher_network,
+            learner_network,
+            rate=1.0,
+            limit=1.5,
+        )
+
+        self.assertEqual(learner.plastic[0][0], 1.5)
+
+    def test_policy_teaching_copies_opposites_without_judging_them(
+        self,
+    ) -> None:
+        positive_teacher = BrainState()
+        negative_teacher = BrainState()
+        positive_learner = BrainState()
+        negative_learner = BrainState()
+        positive_network = Network(1, len(ActionKind))
+        negative_network = Network(1, len(ActionKind))
+        positive_learner_network = Network(1, len(ActionKind))
+        negative_learner_network = Network(1, len(ActionKind))
+        positive_network.output[0][0] = 0.8
+        negative_network.output[0][0] = -0.8
+
+        copied_positive = positive_learner.adopt_policy(
+            positive_teacher,
+            positive_network,
+            positive_learner_network,
+            rate=0.5,
+            limit=1.5,
+        )
+        copied_negative = negative_learner.adopt_policy(
+            negative_teacher,
+            negative_network,
+            negative_learner_network,
+            rate=0.5,
+            limit=1.5,
+        )
+
+        self.assertTrue(copied_positive)
+        self.assertTrue(copied_negative)
+        self.assertAlmostEqual(positive_learner.plastic[0][0], 0.4)
+        self.assertAlmostEqual(negative_learner.plastic[0][0], -0.4)
+
+
 class PlaceMemoryTests(unittest.TestCase):
     def test_a_new_person_remembers_nowhere(self) -> None:
         memory = PlaceMemory()

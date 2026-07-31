@@ -101,6 +101,18 @@ configuration, seed, and final metrics. Omit `--constant-density` to study the
 effect of increasing crowding in a fixed world; include it to isolate population
 scale while keeping starting density approximately constant.
 
+Use an explicit world matrix for D2's sparse-versus-density-matched question:
+
+```bash
+python3 -m sims.scaling_experiment \
+  --config configs/baseline.json --world-sizes 64x64,128x128 \
+  --populations 200,800 --seeds 0,1,2,3,4,5 --ticks 1200
+```
+
+This crosses every population with every world size. The `200 / 128x128` arm
+isolates sparsity, while `800 / 128x128` restores the default founder density.
+Each record includes `founders_per_cell` so those cases remain explicit.
+
 Measure engine and projection cost:
 
 ```bash
@@ -108,6 +120,9 @@ python3 -m sims.profile_engine \
   --populations 1000,5000,10000 \
   --ticks 10
 ```
+
+`profile_engine` accepts the same `--world-sizes` matrix when area and
+population costs need to be separated directly.
 
 Each record reports build time, per-tick cost, `measure()` cost, and service
 manifest and frame cost with serialized byte counts, alongside the configuration

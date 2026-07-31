@@ -318,6 +318,9 @@ class Metrics:
     mean_brain_units: float
     mean_plasticity: float
     policy_diversity: float
+    taught_policy_population: int
+    taught_policy_lineages: int
+    policy_transmissions: int
     mean_remembered_places: float
 
     def to_dict(self) -> Dict[str, object]:
@@ -420,5 +423,8 @@ class Metrics:
             "mean_brain_units": self.mean_brain_units,
             "mean_plasticity": self.mean_plasticity,
             "policy_diversity": self.policy_diversity,
+            "taught_policy_population": self.taught_policy_population,
+            "taught_policy_lineages": self.taught_policy_lineages,
+            "policy_transmissions": self.policy_transmissions,
             "mean_remembered_places": self.mean_remembered_places,
         }

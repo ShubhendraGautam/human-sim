@@ -5,7 +5,7 @@ import json
 import math
 from dataclasses import replace
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 from sims.simple_sim import read_config
 from src.simulation import Simulation, SimulationConfig
@@ -25,11 +25,53 @@ def parse_integer_list(value: str) -> List[int]:
     return values
 
 
+def parse_world_sizes(value: str) -> List[Tuple[int, int]]:
+    """Parse comma-separated ``WIDTHxHEIGHT`` pairs."""
+
+    sizes = []
+    for item in value.split(","):
+        width_text, separator, height_text = item.strip().lower().partition(
+            "x"
+        )
+        if not separator:
+            raise argparse.ArgumentTypeError(
+                "world sizes must be WIDTHxHEIGHT pairs"
+            )
+        try:
+            width = int(width_text)
+            height = int(height_text)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(
+                "world sizes must be WIDTHxHEIGHT pairs"
+            ) from error
+        if width <= 0 or height <= 0:
+            raise argparse.ArgumentTypeError(
+                "world dimensions must be positive integers"
+            )
+        sizes.append((width, height))
+    if not sizes:
+        raise argparse.ArgumentTypeError("at least one world size is required")
+    return sizes
+
+
 def config_for_population(
     base: SimulationConfig,
     population: int,
     constant_density: Optional[float],
+    world_size: Optional[Tuple[int, int]] = None,
 ) -> SimulationConfig:
+    if world_size is not None:
+        if constant_density is not None:
+            raise ValueError(
+                "explicit world size and constant density are alternatives"
+            )
+        width, height = world_size
+        return replace(
+            base,
+            initial_population=population,
+            width=width,
+            height=height,
+        )
     if constant_density is None:
         return replace(base, initial_population=population)
     if constant_density <= 0.0:
@@ -71,6 +113,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--world-sizes",
+        type=parse_world_sizes,
+        help=(
+            "Comma-separated WIDTHxHEIGHT worlds. Each founder population "
+            "is run on every size, exposing sparse and crowded cases."
+        ),
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         help="JSON file containing SimulationConfig fields.",
@@ -84,24 +134,37 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         raise ValueError("--ticks cannot be negative")
     if args.constant_density is not None and args.constant_density <= 0.0:
         raise ValueError("--constant-density must be positive")
+    if args.constant_density is not None and args.world_sizes is not None:
+        raise ValueError(
+            "--constant-density and --world-sizes cannot be combined"
+        )
 
     base_config = read_config(args.config)
 
     for population in args.populations:
-        config = config_for_population(
-            base_config,
-            population,
-            args.constant_density,
-        )
-        for seed in args.seeds:
-            simulation = Simulation(config=config, seed=seed)
-            simulation.run(args.ticks)
-            record = {
-                "seed": seed,
-                "config": config.to_dict(),
-                "metrics": simulation.measure().to_dict(),
-            }
-            print(json.dumps(record, sort_keys=True, separators=(",", ":")))
+        for world_size in args.world_sizes or [None]:
+            config = config_for_population(
+                base_config,
+                population,
+                args.constant_density,
+                world_size,
+            )
+            for seed in args.seeds:
+                simulation = Simulation(config=config, seed=seed)
+                simulation.run(args.ticks)
+                record = {
+                    "seed": seed,
+                    "founders_per_cell": (
+                        population / (config.width * config.height)
+                    ),
+                    "config": config.to_dict(),
+                    "metrics": simulation.measure().to_dict(),
+                }
+                print(json.dumps(
+                    record,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ))
     return 0
 
 

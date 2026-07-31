@@ -196,6 +196,19 @@ it dies with the person and a newborn begins with no active thought from either
 parent. `neural_recurrence_weight=0` is the feed-forward off switch and remains
 the default until long-run comparisons show that temporal memory pays.
 
+An optional cultural channel can move an effective output policy between
+living people. A local teaching action blends the teacher's inherited output
+plus lifetime overlay into the learner's lifetime overlay. Neither inherited
+network is written, so teaching does not cross the Weismann barrier; a child
+still receives only recombined parental networks fixed at conception. The
+recipient records the immediate teacher, originating policy lineage, hop, and
+tick. `policy_teaching_rate=0` removes the option and is the default until
+paired runs connect policy spread to survival rather than spread alone.
+Transfer itself is neutral: it records mutual contact but does not assume the
+copied policy helped, alter trust or another cultural trait, or grant a fitness
+bonus. Opposing policies use the same copy operation; only their later
+consequences under local conditions can separate them at scale.
+
 Attention is capped before neighbor objects are materialized. Dependents and
 locally remembered contacts receive priority, and remaining capacity is
 sampled from the local population. Each attended person becomes a separate
@@ -213,7 +226,8 @@ decision evaluation.
 The observer reports age bands, body condition, development, frailty, health
 fraction, death causes, disease compartments, incidence and recovery totals,
 brain-kind populations, successful/attempted/failed actions, action entropy,
-inherited and recurrent network magnitude,
+inherited and recurrent network magnitude, policy-teaching recipients,
+lineages and transmissions,
 remembered and recently active relationship degree and trust, reproductive
 roles, pregnancies, losses, within-person heterozygosity, and population
 genetic diversity. Food and material accounting separates world stocks,

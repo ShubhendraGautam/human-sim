@@ -88,6 +88,16 @@ Every run contains:
   the energy price removed. The mechanism is correct and tested; what is
   unproven is that this world rewards it. Raise `plasticity_rate` to
   experiment.
+- Cultural policy teaching, present and **off by default**
+  (`policy_teaching_rate`). A local teaching action blends the teacher's
+  effective inherited-plus-learned output policy into the learner's bounded
+  lifetime overlay. It never rewrites either inherited network, so culture
+  cannot become genetic inheritance by accident. The state records immediate
+  teacher, originating lineage, transmission hop, and tick; observer metrics
+  count living recipients, represented lineages, and total transfers. At zero
+  it adds no teaching options and preserves the previous trajectory exactly.
+  Copying itself awards the policy no trust, welfare, or survival advantage;
+  useful and harmful policies pass through the same local mechanism.
 - Strictly bounded local attention plus fixed-capacity, asymmetric memories of
   trust, reciprocity balance, encounter count, and recency.
 - Utility-based choices between eating, gathering, hunting, sharing,

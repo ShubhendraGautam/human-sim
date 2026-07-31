@@ -95,6 +95,12 @@ const SHAPES: Record<string, EventShape> = {
     importance: "landmark",
     directed: true,
   },
+  teach_policy: {
+    label: "Policy teaching",
+    verb: "passed a policy to",
+    importance: "landmark",
+    directed: true,
+  },
   invent: {
     label: "Invention",
     verb: "worked something out",

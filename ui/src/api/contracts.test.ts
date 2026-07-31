@@ -38,9 +38,10 @@ function frame(fauna: Record<string, number[]> | undefined): RunFrame {
 
 describe("protocol envelopes", () => {
   it("reads every schema version of a kind it knows", () => {
-    // Agent detail moved to 2 when biographies were added while frames
-    // stayed where they were. A single shared version constant made that
-    // ordinary change reject every person the inspector asked for.
+    // Agent detail moved independently as biographies and policy lineage were
+    // added. A single shared version constant made an ordinary change reject
+    // every person the inspector asked for.
+    expect(() => assertAgentDetailEnvelope(detail(3))).not.toThrow();
     expect(() => assertAgentDetailEnvelope(detail(2))).not.toThrow();
     expect(() => assertAgentDetailEnvelope(detail(1))).not.toThrow();
   });

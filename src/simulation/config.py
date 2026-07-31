@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import Any, Dict
 
-CONFIG_SCHEMA_VERSION = 8
+CONFIG_SCHEMA_VERSION = 9
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +227,11 @@ class SimulationConfig:
     research_gain_maximum: float = 1.5
     teaching_weight: float = 1.2
     cultural_transmission_rate: float = 0.15
+    # Cultural transmission of an effective neural output policy. A teaching
+    # action blends the teacher's inherited-plus-learned output into the
+    # learner's lifetime overlay; it never rewrites inherited weights. Zero is
+    # the exact off switch and preserves the pre-policy-teaching action set.
+    policy_teaching_rate: float = 0.0
     vessel_build_weight: float = 3.0
     vessel_material_cost: float = 6.0
     vessel_energy_cost: float = 4.0
@@ -596,6 +601,7 @@ class SimulationConfig:
             "research_gain_maximum",
             "teaching_weight",
             "cultural_transmission_rate",
+            "policy_teaching_rate",
             "vessel_build_weight",
             "vessel_material_cost",
             "vessel_energy_cost",
@@ -682,6 +688,7 @@ class SimulationConfig:
             "gather_inventory_emphasis",
             "movement_scarcity_emphasis",
             "cultural_transmission_rate",
+            "policy_teaching_rate",
             "cultural_trait_variation",
             "cultural_influence",
             "gene_mutation_probability",

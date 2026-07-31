@@ -224,6 +224,14 @@ def measure(simulation: "Simulation") -> Metrics:
         simulation._insulation_at(agent.x, agent.y) > 0.0
         for agent in agents
     )
+    taught_policy_population = sum(
+        agent.brain.policy_teacher_id >= 0 for agent in agents
+    )
+    taught_policy_lineages = len({
+        agent.brain.policy_origin_id
+        for agent in agents
+        if agent.brain.policy_origin_id >= 0
+    })
     resource_fraction = (
         total_resources / total_capacity if total_capacity else 0.0
     )
@@ -341,6 +349,9 @@ def measure(simulation: "Simulation") -> Metrics:
         mean_recurrent_magnitude=mean_recurrent_magnitude,
         mean_plasticity=mean_plasticity,
         policy_diversity=policy_diversity,
+        taught_policy_population=taught_policy_population,
+        taught_policy_lineages=taught_policy_lineages,
+        policy_transmissions=simulation.total_policy_transmissions,
         mean_brain_units=mean_brain_units,
         mean_remembered_places=mean_remembered_places,
     )
@@ -529,6 +540,12 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
             round(agent.brain.last_success, 8),
             agent.brain.last_target_id,
             agent.brain.last_action_tick,
+            *((
+                agent.brain.policy_teacher_id,
+                agent.brain.policy_origin_id,
+                agent.brain.policy_generation,
+                agent.brain.policy_taught_tick,
+            ) if simulation.config.policy_teaching_rate > 0.0 else ()),
             agent.birth_country_id,
             agent.belief_id,
             round(agent.research_progress, 8),
@@ -587,6 +604,8 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
         simulation.total_sea_crossings,
         simulation.total_infections,
         simulation.total_recoveries,
+        *((simulation.total_policy_transmissions,)
+          if simulation.config.policy_teaching_rate > 0.0 else ()),
         tuple(sorted(simulation.deaths_by_cause.items())),
         agents,
         *((artifacts,) if simulation.config.artifacts_enabled else ()),
@@ -1080,6 +1099,15 @@ def validate_state(simulation: "Simulation") -> None:
                 len(row) == agent.network.units
                 for row in agent.brain.plastic
             )
+        assert agent.brain.policy_generation >= 0
+        assert (
+            agent.brain.policy_teacher_id < 0
+            or agent.brain.policy_teacher_id < simulation.entities.claimed_ids
+        )
+        assert (
+            agent.brain.policy_origin_id < 0
+            or agent.brain.policy_origin_id < simulation.entities.claimed_ids
+        )
         assert all(
             0.0 <= getattr(agent.culture, name) <= 1.0
             for name in (

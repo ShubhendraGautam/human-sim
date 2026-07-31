@@ -10,7 +10,7 @@ both names, so existing imports from there continue to work.
 MODEL_VERSION = "0.8"
 
 # Incremented when the shape of Simulation.snapshot() changes.
-SNAPSHOT_SCHEMA_VERSION = 7
+SNAPSHOT_SCHEMA_VERSION = 8
 
 # Incremented when the resumable causal-state contract changes.
-CHECKPOINT_SCHEMA_VERSION = 3
+CHECKPOINT_SCHEMA_VERSION = 4

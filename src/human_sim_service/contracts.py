@@ -14,10 +14,12 @@ PROTOCOL_VERSION = 1
 #: and at what pace. A client that reattaches to a run it did not start has
 #: no other way to know the world is still moving.
 MANIFEST_SCHEMA_VERSION = 2
-#: 4 adds artifact columns. Version 3 added environmental exposure and
-#: energy-cost metrics; version 2 added fauna.
-FRAME_SCHEMA_VERSION = 4
-AGENT_DETAIL_SCHEMA_VERSION = 2
+#: 5 adds policy-transmission metrics. Version 4 added artifact columns;
+#: version 3 added environmental exposure and energy-cost metrics; version 2
+#: added fauna.
+FRAME_SCHEMA_VERSION = 5
+#: 3 adds cultural policy lineage. Version 2 added biographies of the dead.
+AGENT_DETAIL_SCHEMA_VERSION = 3
 EVENT_FEED_SCHEMA_VERSION = 1
 
 RUN_MANIFEST_KIND = "run_manifest"

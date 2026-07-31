@@ -9,6 +9,17 @@ metabolic cost, spatial locality, possible actions, and lifecycle constraints.
 Whether the population grows, collapses, cooperates, segregates, specializes,
 or forms stable structures must follow from those axioms and agent experience.
 
+Scale supplies repeated trials; it is not itself a fitness rule. Evolution
+requires variation, inheritance, and differential survival or reproduction,
+all resolved through local physical and social interactions. The engine never
+assigns a fitness score, rewards a lineage for becoming common, compares a
+policy with a developer-authored ideal, or lets an aggregate observer metric
+change an agent. Cultural copying follows the same boundary: it can move
+bounded policy data between local people, but copying grants that policy no
+trust, welfare, reproductive, or survival bonus. Useful, harmful, and neutral
+policies are transmitted by the same mechanism; their population histories
+emerge only after many carriers meet the world.
+
 An addition belongs in the engine when it answers all of these questions:
 
 1. What information can an agent locally observe?
@@ -415,24 +426,23 @@ with interface and brain work, the acceptance gates each item must clear, and
 the decisions still open. The list below is the engine-side sequence it draws
 from.
 
-1. Separate lightweight visualization snapshots from full resumable
-   checkpoints and persist experiment streams with the code revision.
-2. Add environmental exposure. Seasons currently modulate what grows, and
-   nothing in the world costs a body anything for standing in it. Shelter
-   cannot be necessary until it is, and no structure should be added before
-   that pressure exists.
-3. Add artifacts on the entity substrate: built from materials by an
-   identified creator, decaying without maintenance, with physical effects
-   that other entities read. Their labels stay in the reader's head.
-4. Add spatially coherent climate/biome layers and additional resource types
-   only where they create distinct ecological niches.
-5. Add non-human organisms. Fauna and flora register themselves like anyone
-   else, and a living reservoir replaces the environmental hazard that
-   currently stands in for one.
-6. Introduce production and exchange from physical inventories.
-7. Add resource-grounded taking or conflict only after relationship harm,
+1. ~~Separate lightweight visualization snapshots from full resumable
+   checkpoints and persist experiment streams with the code revision.~~ Done.
+2. ~~Add environmental exposure so seasons cost a body something and shelter
+   has a physical pressure to answer.~~ Done.
+3. ~~Add effect-defined, creator-attributed, maintained artifacts on the entity
+   substrate.~~ Done.
+4. Measure whether the teachable Level 1 policy substrate spreads useful
+   policies and improves survival across lineages.
+5. Grow world area and population together, then add spatially coherent
+   climate/biome layers only where they create distinct ecological niches.
+6. Add flora as the source of food renewal. Fauna mechanics already exist;
+   after flora lands, make living organisms the disease reservoir and retire
+   the standing environmental hazard.
+7. Introduce production and exchange from physical inventories.
+8. Add resource-grounded taking or conflict only after relationship harm,
    reputation, and injury consequences exist.
-8. Derive groups and institutions from persistent relationships and collective
+9. Derive groups and institutions from persistent relationships and collective
    action.
 
 This order builds causal layers. Markets should follow production and exchange;

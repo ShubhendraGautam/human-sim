@@ -1,12 +1,18 @@
 # Design checklist
 
-Three directions are open at once: make the world legible, put more than
-people in it, and let minds change themselves. Each is large enough to wander
-in. This document is the map — what each one means concretely, what has to be
-true before it is allowed in, and the single order they land in.
+Four directions are open at once: make the world legible, put more than
+people in it, let minds change themselves, and make the world large enough to
+contain distinct niches. Each is large enough to wander in. This document is
+the map — what each one means concretely, what has to be true before it is
+allowed in, and the single order they land in.
 
 It is a living plan. When an item ships, check it and record what was
 measured. When an item is rejected, leave it here with the reason.
+
+Mechanisms that are built but not yet settled run through the ordered,
+reproducible queue in [experiments/README.md](experiments/README.md). Evidence
+from an earlier item decides whether the next mechanism stays off, changes, or
+becomes the next implementation dependency.
 
 ## Gates every item clears
 
@@ -122,10 +128,10 @@ that cannot answer them is scenery.
   eventually building insulation can compete through the existing utility
   machinery.
 
-  The formula takes insulation as a measurable fraction even though no
-  artifact supplies it yet. It knows no structure labels, clamps overlapping
-  protection so insulation cannot create energy, and leaves B2 one narrow
-  seam: `(local season, insulation) -> energy cost`. With
+  The formula takes insulation as a measurable fraction and knows no structure
+  labels. It clamps overlapping protection so insulation cannot create energy;
+  B2 now supplies that fraction through one narrow seam:
+  `(local season, insulation) -> energy cost`. With
   `environmental_energy_cost_per_year=0`, golden pre-change
   `state_digest()` hashes match byte-for-byte across three seeds.
 
@@ -171,6 +177,15 @@ that cannot answer them is scenery.
   (food today), renewing far more slowly than a lifetime, or not at all
   (materials today). A resource earns its place by making somewhere worth
   going and somewhere worth leaving.
+
+  **Entry slice after D2:** add deterministic, spatially coherent temperature
+  and moisture layers, then derive local seasonal exposure and food renewal
+  from those physical values. A biome name may be an observer label, never an
+  engine branch. Agents initially sense only the consequences they already
+  can observe — season, resource yield, and embodied cost. The disabled path
+  must reproduce the current world arrays and digest exactly. A second carried
+  resource waits until it has a renewal regime and action trade-off that food
+  and material do not already express.
 - [ ] **B4 Flora.** Plants must *replace* the food renewal formula, not sit
   beside it. Acceptance: with flora off, food renews as it does today; with
   flora on, food exists where plants are, and clearing an area has
@@ -415,13 +430,32 @@ substrate rather than as a place to stop.
   that temporal memory improves something selection can retain.
 
 - [ ] **C1 Level 1 — a weight vector that is heritable, learnable, and
-  teachable.** Promote action scoring from config constants to per-agent data.
-  A brain change becomes a change of weights, which can mutate at conception,
-  drift with experience, and spread through the teaching and cultural channels
-  that already exist. Because C2 is committed, the transmission path — how a
-  policy mutates, how it is taught, how it is stored — is designed once here
-  and reused, so that C2 changes only what a policy *is*, never how it moves
-  between people.
+  teachable.** *Transmission substrate built; evidence remains.* Inheritance
+  is supplied by the network and lifetime change by its plastic output
+  overlay. Cultural transmission is now present behind an off switch.
+
+  A teaching action blends the teacher's effective output policy into the
+  learner's lifetime overlay; it never rewrites the learner's inherited
+  network, so cultural transmission cannot become genetic inheritance by
+  accident. Policy copying is neutral at the moment of transfer: unlike
+  receiving a concrete technique, it grants no fixed social benefit, trust,
+  welfare, cultural-trait, reproductive, or survival bonus. The same operation
+  copies opposing weight vectors without judging either one. The mechanism
+  starts off. Its zero-rate switch must preserve the current digest and action
+  options exactly, including for people who can already teach techniques.
+
+  The transmission record carries the immediate teacher, the originating
+  policy lineage, its hop count, and the tick. Observer metrics count living
+  recipients, distinct lineages, and transmissions; the event feed records
+  each transfer. This is the path C2 reuses, so C2 changes what a policy is,
+  never how it moves between people.
+
+  Acceptance: a policy can spread only through a local teaching action, all
+  weights remain bounded, checkpoint restore preserves both the policy and its
+  lineage, and paired runs can relate lineage spread to survival. A policy that
+  spreads without improving anything is culture, but not an enabled default.
+  Lineage and aggregate metrics are observer outputs only and must never enter
+  scoring, copying, survival, or reproduction.
 - [ ] **C2 Level 2 — small bounded programs.** Condition-to-action rules over
   local observations: fixed opcode set, a hard node budget, mutable, copyable
   by teaching, and storable in an artifact so an idea can outlive the person
@@ -511,6 +545,13 @@ purpose, not a contradiction.
   guess about someone else's hardware for their own. The obligation this
   creates is to make the cost *visible* — a world's per-tick cost should be
   reportable before a long run is committed to — not to prevent the choice.
+
+  **Prepared.** Both outcome and timing harnesses accept an explicit world
+  matrix. The first comparison crosses 200 and 800 founders with 64x64 and
+  128x128 worlds: 200/128x128 isolates sparsity, while 800/128x128 restores
+  the current founder density. B3 starts only after this reports encounter,
+  reproduction, disease, population, and per-tick consequences rather than
+  assuming that a larger canvas is the same simulation enlarged.
 - [ ] **D3 Then, and only then, the native kernel.** D2 pushes on `_decide`,
   which is ~70% of a tick and the thing pure-Python tuning has already given
   up about 1.15x on. This is where a C, Rust, or array-backed decision kernel
@@ -524,7 +565,7 @@ purpose, not a contradiction.
 
 ## The order
 
-The three tracks interleave into one sequence. Dependencies, not preference,
+The four tracks interleave into one sequence. Dependencies, not preference,
 decide it.
 
 1. ~~**D1** a cheaper per-cell sweep.~~ **Done.** 3.6–4.6x, digest-identical.
@@ -545,14 +586,19 @@ decide it.
    observer pause rather than work charged every tick.
 3. ~~**A1–A4, A6** — sprite substrate for what already exists.~~ **Done.**
    A7 is partly done; it needs a DOM test environment to finish.
-4. **B1** environmental exposure.
+4. ~~**B1** environmental exposure.~~ **Done.** Seasonal distance from a
+   local annual midpoint now charges embodied energy, and artifact insulation
+   reduces that pressure through an effect-defined interface.
 5. ~~**B2** artifacts, with **A5** drawing them.~~ **Done.** Objects are
    effect-defined, maintained or decayed, checkpointed, and visible.
 6. **C1** level 1 brains, built as C2's substrate.
 7. **D2** grow the world and its population together; **B3** climate and biome
    layers give the new space distinct niches and renewal regimes.
 8. **B4** flora, with **A5** drawing trees.
-9. **B5** fauna; retire the environmental disease hazard.
+9. ~~**B5** fauna.~~ **Mechanics done; reservoir work remains.** Animals graze,
+   reproduce, mutate, compete with people for food, and can be hunted. After
+   flora lands, make living fauna the disease reservoir and retire the
+   standing environmental hazard.
 10. **D3** the native decision kernel, once D2 has proven where the tick
     actually goes.
 11. **C2** and **C2b** level 2 brains.

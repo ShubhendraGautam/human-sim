@@ -156,6 +156,7 @@ class Simulation:
         self.total_deaths = 0
         self.total_pregnancy_losses = 0
         self.total_inventions = 0
+        self.total_policy_transmissions = 0
         self.total_sea_crossings = 0
         self.total_infections = 0
         self.total_coinages = 0
@@ -1300,11 +1301,25 @@ class Simulation:
                     ),
                 ))
 
-        if agent.known_techniques:
+        if (
+            agent.known_techniques
+            or config.policy_teaching_rate > 0.0
+        ):
             teaching_weight = config.teaching_weight
             generosity = self._temperament(agent, "generosity")
             for learner in living_neighbors:
-                if not agent.known_techniques & ~learner.known_techniques:
+                has_technique = bool(
+                    agent.known_techniques & ~learner.known_techniques
+                )
+                has_policy = (
+                    config.policy_teaching_rate > 0.0
+                    and agent.brain.policy_distance(
+                        learner.brain,
+                        agent.network,
+                        learner.network,
+                    ) > 1e-12
+                )
+                if not has_technique and not has_policy:
                     continue
                 preference, _ = relationship_bonus(learner)
                 append_option((
@@ -2754,7 +2769,7 @@ class Simulation:
     def _teach(self, agent: Agent, target_id: Optional[int]) -> bool:
         """Pass on the first thing this person has that the other lacks."""
 
-        if target_id is None or not agent.known_techniques:
+        if target_id is None:
             return False
         target = self.agents.get(target_id)
         if (
@@ -2767,27 +2782,73 @@ class Simulation:
             agent.known_techniques,
             target.known_techniques,
         )
-        if technique is None:
-            return False
-        target.known_techniques = knowledge.with_technique(
-            target.known_techniques,
-            technique,
-        )
-        self._record_social_benefit(agent, target, 0.5)
-        self._transmit_culture(
-            agent,
-            target,
-            dimensions=("curiosity",),
-            allow_belief=True,
-            channel=0x7EA,
-            signal_values={"curiosity": 1.0},
-        )
-        self._record(Event(
-            self.tick,
-            "teach",
-            (agent.id, target.id),
-            (("technique", float(technique.index)),),
-        ))
+        if technique is not None:
+            target.known_techniques = knowledge.with_technique(
+                target.known_techniques,
+                technique,
+            )
+            event = Event(
+                self.tick,
+                "teach",
+                (agent.id, target.id),
+                (("technique", float(technique.index)),),
+            )
+            # A technique is an added physical capability, so receiving one
+            # retains the established teaching benefit and cultural signal.
+            self._record_social_benefit(agent, target, 0.5)
+            self._transmit_culture(
+                agent,
+                target,
+                dimensions=("curiosity",),
+                allow_belief=True,
+                channel=0x7EA,
+                signal_values={"curiosity": 1.0},
+            )
+        else:
+            changed = target.brain.adopt_policy(
+                agent.brain,
+                agent.network,
+                target.network,
+                self.config.policy_teaching_rate,
+                self.config.plasticity_limit,
+            )
+            if not changed:
+                return False
+            origin = (
+                agent.brain.policy_origin_id
+                if agent.brain.policy_origin_id >= 0
+                else agent.id
+            )
+            target.brain.policy_teacher_id = agent.id
+            target.brain.policy_origin_id = origin
+            target.brain.policy_generation = agent.brain.policy_generation + 1
+            target.brain.policy_taught_tick = self.tick
+            self.total_policy_transmissions += 1
+            event = Event(
+                self.tick,
+                "teach_policy",
+                (agent.id, target.id),
+                (
+                    ("origin", float(origin)),
+                    ("generation", float(target.brain.policy_generation)),
+                ),
+            )
+            # Policy provenance is observational, not a fitness oracle. A
+            # copied policy may be harmful, useful, or neutral, so copying it
+            # creates mutual contact but grants no fixed trust, welfare, or
+            # cultural bonus. Its consequences in the world determine which
+            # carriers survive and how many local chances it gets to spread.
+            self.relationships.observe(
+                agent.relationship_slot,
+                target.id,
+                self.tick,
+            )
+            self.relationships.observe(
+                target.relationship_slot,
+                agent.id,
+                self.tick,
+            )
+        self._record(event)
         return True
 
     def _build_vessel(self, agent: Agent) -> bool:

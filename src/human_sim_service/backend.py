@@ -422,6 +422,18 @@ class PythonSimulationBackend:
                     else str(agent.brain.last_target_id)
                 ),
                 "last_action_tick": agent.brain.last_action_tick,
+                "policy_teacher_id": (
+                    None
+                    if agent.brain.policy_teacher_id < 0
+                    else str(agent.brain.policy_teacher_id)
+                ),
+                "policy_origin_id": (
+                    None
+                    if agent.brain.policy_origin_id < 0
+                    else str(agent.brain.policy_origin_id)
+                ),
+                "policy_generation": agent.brain.policy_generation,
+                "policy_taught_tick": agent.brain.policy_taught_tick,
             },
             "culture": asdict(agent.culture),
             "disease": {

@@ -25,10 +25,10 @@ export const PROTOCOL_VERSION = 1 as const;
 export const READABLE_SCHEMA_VERSIONS = {
   /** 2 carries `playback`: whether the engine is advancing this run itself. */
   run_manifest: [2, 1],
-  /** 4 carries artifacts; 3 added environmental metrics; 2 added fauna. */
-  render_frame: [4, 3, 2, 1],
-  /** 2 carries the biography of the dead; 1 has living agents only. */
-  agent_detail: [2, 1],
+  /** 5 adds policy lineage metrics; 4 artifacts; 3 environment; 2 fauna. */
+  render_frame: [5, 4, 3, 2, 1],
+  /** 3 adds policy lineage; 2 biographies; 1 has living agents only. */
+  agent_detail: [3, 2, 1],
   event_feed: [1],
 } as const satisfies Record<string, readonly number[]>;
 
@@ -37,8 +37,8 @@ export type MessageKind = keyof typeof READABLE_SCHEMA_VERSIONS;
 /** What this renderer emits when it fabricates a message of its own. */
 export const SCHEMA_VERSION = {
   run_manifest: 2,
-  render_frame: 4,
-  agent_detail: 2,
+  render_frame: 5,
+  agent_detail: 3,
   event_feed: 1,
 } as const satisfies Record<MessageKind, number>;
 
@@ -315,6 +315,12 @@ export interface SimulationMetrics {
   mean_plasticity: number;
   /** Spread of inherited policies; zero means the population are clones. */
   policy_diversity: number;
+  /** Living people whose lifetime policy includes a taught contribution. */
+  taught_policy_population: number;
+  /** Distinct originating policy lineages represented among living people. */
+  taught_policy_lineages: number;
+  /** Successful policy-teaching actions over the whole run. */
+  policy_transmissions: number;
   mean_remembered_places: number;
   age_bands: Record<string, number>;
   country_population: Record<string, number>;
@@ -460,6 +466,10 @@ export interface AgentDetail {
     last_success: number;
     last_target_id: string | null;
     last_action_tick: number;
+    policy_teacher_id: string | null;
+    policy_origin_id: string | null;
+    policy_generation: number;
+    policy_taught_tick: number;
   };
   culture: Record<string, number>;
   reproduction: {

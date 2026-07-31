@@ -16,7 +16,11 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from sims.scaling_experiment import config_for_population, parse_integer_list
+from sims.scaling_experiment import (
+    config_for_population,
+    parse_integer_list,
+    parse_world_sizes,
+)
 from sims.simple_sim import read_config
 from src.human_sim_service.backend import PythonSimulationBackend
 from src.simulation import Scenario, Simulation, SimulationConfig
@@ -171,10 +175,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--constant-density",
         type=float,
-        default=0.25,
         help=(
             "Founders per grid cell. World area scales with population so "
-            "cost changes reflect scale rather than crowding."
+            "cost changes reflect scale rather than crowding (default 0.25)."
+        ),
+    )
+    parser.add_argument(
+        "--world-sizes",
+        type=parse_world_sizes,
+        help=(
+            "Comma-separated WIDTHxHEIGHT worlds. Each founder population "
+            "is measured on every size instead of deriving size from density."
         ),
     )
     parser.add_argument(
@@ -207,27 +218,49 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         raise ValueError("--ticks cannot be negative")
     if args.constant_density is not None and args.constant_density <= 0.0:
         raise ValueError("--constant-density must be positive")
+    if args.constant_density is not None and args.world_sizes is not None:
+        raise ValueError(
+            "--constant-density and --world-sizes cannot be combined"
+        )
 
     base_config = read_config(args.config)
     revision = code_revision()
 
     for population in args.populations:
-        config = config_for_population(
-            base_config,
-            population,
-            args.constant_density,
-        )
-        for seed in args.seeds:
-            record = measure_run(
-                config,
-                seed,
-                args.ticks,
-                include_projection=not args.no_projection,
+        for world_size in args.world_sizes or [None]:
+            density = (
+                None
+                if world_size is not None
+                else (
+                    args.constant_density
+                    if args.constant_density is not None
+                    else 0.25
+                )
             )
-            record["code_revision"] = revision
-            print(json.dumps(record, sort_keys=True, separators=(",", ":")))
-            if args.profile:
-                profile_run(config, seed, args.ticks, args.profile_limit)
+            config = config_for_population(
+                base_config,
+                population,
+                density,
+                world_size,
+            )
+            for seed in args.seeds:
+                record = measure_run(
+                    config,
+                    seed,
+                    args.ticks,
+                    include_projection=not args.no_projection,
+                )
+                record["code_revision"] = revision
+                record["founders_per_cell"] = (
+                    population / (config.width * config.height)
+                )
+                print(json.dumps(
+                    record,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ))
+                if args.profile:
+                    profile_run(config, seed, args.ticks, args.profile_limit)
     return 0
 
 
