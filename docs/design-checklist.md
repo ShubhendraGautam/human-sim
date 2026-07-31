@@ -79,10 +79,11 @@ label and the design is wrong.
   terrain with a marked coastline, greenery from the food layer, stone from
   the material layer, people as figures, hulls as boats, disease and selection
   rings that follow whatever tier a person is drawn at.
-- [ ] **A5 Drawable only after Track B.** Structures (needs artifacts) and
-  animals (needs fauna). Do not fake these with decoration; a drawn house
-  nobody built is exactly the block occupier this project is trying to stop
-  building.
+- [x] **A5 Drawable only after Track B.** *Shipped for structures and fauna.*
+  Animals read the fauna register. Built objects read the artifact register,
+  and their cached glyph variants are selected from insulation, stored food,
+  occupancy, and durability. There is still no `house` field: a roof-like
+  glyph is the renderer's reading of high insulation, not an engine label.
 
   Greenery moved out of this item and into A4 on a distinction worth keeping:
   drawing the *food layer* as plants is a reading of a quantity the engine
@@ -113,16 +114,56 @@ that outlives a creator. What is missing is that only `PERSON` has behaviour.
 Each new kind answers the same five questions as any other addition. A kind
 that cannot answer them is scenery.
 
-- [ ] **B1 Environmental exposure.** Seasons currently decide what grows, and
-  nothing in the world costs a body anything for standing in it. Until it
-  does, shelter cannot be necessary and any structure would be a rule invented
-  to justify a sprite. This is why exposure comes first and everything
-  physical waits behind it.
-- [ ] **B2 Artifacts.** Built from materials by an identified creator, decay
-  without maintenance, physical effects other entities read — insulation,
-  storage, occupancy. No labels in the engine. A structure earns its existence
-  through the same utility machinery as any other action: if nothing makes
-  shelter pay for itself, nobody builds, and that is a valid result.
+- [x] **B1 Environmental exposure.** *Shipped.* The season an agent already
+  senses now has a physical cost as well as an ecological one. Distance from
+  the local annual midpoint costs energy for thermoregulation, symmetrically
+  in hot and cold extremes. This is a local scalar read, changes embodied
+  energy, and creates no prescribed response: moving, eating the cost, and
+  eventually building insulation can compete through the existing utility
+  machinery.
+
+  The formula takes insulation as a measurable fraction even though no
+  artifact supplies it yet. It knows no structure labels, clamps overlapping
+  protection so insulation cannot create energy, and leaves B2 one narrow
+  seam: `(local season, insulation) -> energy cost`. With
+  `environmental_energy_cost_per_year=0`, golden pre-change
+  `state_digest()` hashes match byte-for-byte across three seeds.
+
+  **Measured.** At the default strength, the first simulated year charged
+  1.02 energy per person, about 8.5% of mean basal metabolism. Six paired
+  seeds after 20 years finished at 330.2 people without the cost and 331.2
+  with it — no population effect distinguishable from seed noise — while
+  mean energy moved 89.39 to 88.77 and body condition 0.881 to 0.875. The
+  direct physiological signal is present without claiming an unsupported
+  demographic outcome. Alternating the arms measured 105.41 versus
+  106.03 ms/tick (1.006x); the cost is below ordinary timing noise and far
+  inside the 2x Track B budget.
+- [x] **B2 Artifacts.** *Shipped.* A build action competes in the existing
+  utility machinery, spends held material and energy, and registers an inert
+  object with creator provenance that survives its maker. Objects carry only
+  measurable properties: condition, insulation, food capacity, and occupancy
+  capacity. Local occupants share insulation; overcrowding dilutes it. Gather
+  can put overflow into local capacity and eat can draw it back out.
+
+  Condition falls each year. The same build action repairs the most damaged
+  local object at a smaller material and energy price; without repair the
+  object deregisters and any food it held is recorded as a loss. Current
+  occupancy is derived from the person index and never stored on the object.
+
+  The action was appended without invalidating the control. With
+  `artifacts_enabled=false`, brains retain the old output width and golden
+  pre-change digests match across three seeds. In the treatment, the new
+  founder output row uses an independent keyed stream, so both arms begin
+  with identical bodies, positions, roles, genomes, and all legacy neural
+  weights.
+
+  **Measured.** Six paired seeds, 60 founders on 24x24 land after ten years:
+  the artifact arm held 31.7 objects and sheltered 9.8 current occupants on
+  average. Mean energy moved 88.62 to 89.15 and body condition 0.873 to 0.877;
+  population moved 88.8 to 85.7, a mixed short-horizon trade rather than an
+  asserted benefit. At equal starting population the arm adds 120 profiler
+  calls per tick (0.46%); alternating wall-clock arms could not resolve a
+  slowdown (35.94 vs 34.81 ms median), well inside the Track B budget.
 - [ ] **B3 Climate and biome layers.** Spatially coherent, and added only
   where they create distinct ecological niches. A second resource that behaves
   like the first is a rename. Resources are distinguished by **renewal
@@ -175,8 +216,10 @@ that cannot answer them is scenery.
   simulations at once — but both arms paid the same tax and the ratio is
   what the gate asks for. The item stays open until flora are in, since the
   budget is for all of Track B rather than one kind of it.
-- [ ] **B7 Invariants and digest.** `state_digest()` covers the new kinds, and
-  `validate_state` gains the invariants each kind makes possible.
+- [ ] **B7 Invariants and digest.** *Complete for fauna and artifacts; waits
+  for flora.* Artifact identity, provenance, placement, physical bounds,
+  storage bounds, action width, digest, checkpoint, and stock flows are
+  pinned. The item remains open because B4 has not supplied the final kind.
 
 ## Track C — Minds that change themselves
 
@@ -503,7 +546,8 @@ decide it.
 3. ~~**A1–A4, A6** — sprite substrate for what already exists.~~ **Done.**
    A7 is partly done; it needs a DOM test environment to finish.
 4. **B1** environmental exposure.
-5. **B2** artifacts, with **A5** drawing them.
+5. ~~**B2** artifacts, with **A5** drawing them.~~ **Done.** Objects are
+   effect-defined, maintained or decayed, checkpointed, and visible.
 6. **C1** level 1 brains, built as C2's substrate.
 7. **D2** grow the world and its population together; **B3** climate and biome
    layers give the new space distinct niches and renewal regimes.

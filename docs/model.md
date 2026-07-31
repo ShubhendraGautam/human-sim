@@ -15,6 +15,19 @@ Every run contains:
 - A bounded, optionally wrapping world with heterogeneous carrying capacity,
   capacity-scaled productivity, latitude-driven seasons, food spoilage,
   nonrenewable materials by default, and user-defined land and sea.
+- Environmental exposure grounded in that same local season. Both hot and
+  cold departures from a row's annual midpoint charge thermoregulation energy,
+  so season affects bodies as well as food. The formula already accepts
+  bounded insulation as a physical input for future artifacts without naming
+  any structure. Set `environmental_energy_cost_per_year` to zero to reproduce
+  the pre-exposure model exactly.
+- Material-built inert objects whose engine state is condition, insulation,
+  food capacity, occupancy capacity, and stored food—not a structure type.
+  Construction and repair cost material and energy; condition decays, stored
+  food spoils, and an object that reaches zero condition disappears with its
+  remaining stock recorded as a loss. Current local occupancy determines how
+  far insulation stretches. Set `artifacts_enabled=false` to restore the
+  pre-artifact action space and trajectory exactly.
 - User-defined countries that place founders in distinct regions with different
   religions, cultural trait distributions, resources, and starting energy.
 - Grazing animals, seeded into every world and thereafter existing only

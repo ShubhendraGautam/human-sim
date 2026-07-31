@@ -175,6 +175,13 @@ export function LayerPanel({
           onChange={(checked) => onToggle("fauna", checked)}
         />
         <LayerRow
+          checked={layers.artifacts}
+          icon="material"
+          label="Built objects"
+          meta={`${compact(frame.metrics.artifact_count)} · effects define glyphs`}
+          onChange={(checked) => onToggle("artifacts", checked)}
+        />
+        <LayerRow
           checked={layers.vessels}
           icon="waves"
           label="Vessels"
@@ -210,9 +217,9 @@ export function LayerPanel({
         <Icon name="spark" size={14} />
         <p>
           Layers are observations only. They never change agent decisions.
-          Trees and stone are how the food and material layers are drawn, not
-          things standing in the world — nothing has been built or planted
-          yet. Zoom in for detail; zoomed out, people become density.
+          Trees and stone are readings of resource layers, not entities.
+          Built glyphs are registered objects, drawn from insulation, storage,
+          occupancy, and condition rather than a stored type label.
         </p>
       </div>
     </aside>

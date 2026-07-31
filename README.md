@@ -41,7 +41,9 @@ gold and teal are birth countries, cyan rings are people who hold a vessel,
 red rings are the infectious. The brown quadrupeds are animals — grazing on
 the same food layer people harvest, so a herd is both competition and food.
 Trees and stone are how the food and material layers are drawn, not objects
-standing in the world: nothing has been built or planted yet.
+standing in the world. Built glyphs are different: each is a registered
+material object made during the run, drawn from its measurable effects rather
+than from an engine-side type label. Nothing has been planted yet.
 
 Everything the interface shows is a reading of engine state. Browser controls
 can move time and set starting conditions; they cannot touch a decision.
@@ -57,6 +59,8 @@ can move time and set starting conditions; they cannot touch a decision.
 | **Language** | Populations start mute. Words are coined from nothing, grounded in what both parties can see, and children acquire them from whoever feeds them. Dialects are the expected outcome where contact is thin |
 | **Technology** | An open table of learnable techniques rather than named skills — discovery and teaching are written against no technique in particular |
 | **Seafaring** | Coastal experimentation, materials, and hulls that are spent by time at sea, so a failed voyage drowns whoever is aboard |
+| **Environment** | Latitude-driven seasons change both food renewal and embodied thermoregulation cost, creating physical pressure artifact insulation can reduce |
+| **Artifacts** | Material-built, creator-attributed objects provide insulation and local food capacity, decay without maintenance, and are rendered from effects rather than named types |
 | **Disease** | Local SEIR with an environmental reservoir, where density decides whether an introduction fizzles or becomes a wave |
 | **Society** | Bounded asymmetric memories of trust and reciprocity, pair bonds, dependent children, and caregiver food transfer |
 

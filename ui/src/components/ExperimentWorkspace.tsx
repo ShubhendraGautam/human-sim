@@ -158,27 +158,36 @@ export function ExperimentWorkspace({
       }));
 
     try {
-      for (const seed of seeds) {
-        const control = await runArm(
+      for (const [index, seed] of seeds.entries()) {
+        const controlFirst = index % 2 === 0;
+        const firstOverrides = controlFirst
+          ? definition.control
+          : definition.treatment;
+        const secondOverrides = controlFirst
+          ? definition.treatment
+          : definition.control;
+        const first = await runArm(
           client,
           manifest,
           seed,
           years,
-          definition.control,
+          firstOverrides,
           metric,
           cancelled,
           addTicks,
         );
-        const treatment = await runArm(
+        const second = await runArm(
           client,
           manifest,
           seed,
           years,
-          definition.treatment,
+          secondOverrides,
           metric,
           cancelled,
           addTicks,
         );
+        const control = controlFirst ? first : second;
+        const treatment = controlFirst ? second : first;
         const pair = {
           seed,
           control,
@@ -232,7 +241,7 @@ export function ExperimentWorkspace({
 
       <div className="experiment-layout">
         <aside className="experiment-catalog" aria-label="Experiment catalog">
-          <span className="eyebrow">Brain evolution</span>
+          <span className="eyebrow">Mechanism tests</span>
           <h2>Choose a question</h2>
           {EXPERIMENT_DEFINITIONS.map((item) => (
             <button

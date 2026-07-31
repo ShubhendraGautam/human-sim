@@ -169,6 +169,20 @@ class ServiceContractTests(unittest.TestCase):
             frame["fauna"],
             {"id": [], "x": [], "y": [], "energy": [], "vigilance": []},
         )
+        self.assertEqual(
+            frame["artifacts"],
+            {
+                "id": [],
+                "x": [],
+                "y": [],
+                "durability": [],
+                "insulation": [],
+                "storage_capacity": [],
+                "food_stored": [],
+                "occupancy_capacity": [],
+                "occupancy": [],
+            },
+        )
 
     def test_resource_layers_are_opt_in(self) -> None:
         frame = self.manager.frame(

@@ -552,6 +552,7 @@ class RunSession:
             metrics=source.metrics,
             agents=source.agents,
             fauna=source.fauna,
+            artifacts=source.artifacts,
             resources=source.resources,
         ).to_dict()
 

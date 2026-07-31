@@ -76,6 +76,20 @@ it, so the population and the registry cannot drift apart. `Simulation.fauna`
 is the same arrangement for animals. Registration and removal go through the
 registry; `validate_state` checks that they did.
 
+### `src.simulation.artifacts`
+
+Inert objects made by people. The data model contains no social type: only
+position, condition, insulation, food capacity, occupancy capacity, and held
+food. Creator provenance lives in the entity registry and survives the
+creator. Occupancy is a current spatial-index reading rather than stored
+state; insulation is diluted when occupants exceed capacity.
+
+Construction and maintenance share one action. Both spend embodied material
+and energy; maintenance restores condition, and an unmaintained object
+eventually deregisters. Gathering may place overflow into local storage and
+eating may draw it back out, so capacity changes physical stock rather than a
+display number. Stored food spoils under the same rule as carried food.
+
 ### `src.simulation.fauna`
 
 Grazing animals, and the only kind besides people that the registry currently
@@ -154,7 +168,12 @@ rebuild may still be listed, and readers already tolerate that.
 World layers store terrain, country, food capacity, annual productivity,
 seasonal amplitude/phase, material capacity, and occupancy separately. Food
 renewal scales with carrying capacity, remaining ecological room, elapsed
-years, and the current latitude season. Materials are nonrenewable by default.
+years, and the current latitude season. That same locally readable season has
+an embodied effect: its absolute departure from the annual midpoint charges
+thermoregulation energy. The formula accepts insulation as a bounded physical
+input, not an artifact label, so a future structure can reduce the cost
+without either layer learning what a house is. Materials are nonrenewable by
+default.
 
 Renewal is expressed as a share of the remaining deficit and swept a row at a
 time. A full cell then grows by nothing without needing a special case, an
@@ -190,8 +209,9 @@ One `Simulation` owns all mutable state, including its pseudorandom generator.
 A tick has eight phases:
 
 1. Reset interval flow counters and advance local infection stages/exposure.
-2. Advance body condition, development, metabolism, gestation, frailty, and
-   mortality; remove deaths through indexed cleanup.
+2. Decay artifacts and their stored food; advance body condition,
+   development, metabolism, insulated environmental energy cost, gestation,
+   frailty, and mortality; remove deaths through indexed cleanup.
 3. Advance pregnancies and births, then rebuild the spatial index.
 4. Advance the herd — graze, move, breed, die — and rebuild the index again,
    so a hunter chooses against the herd as it actually stands rather than

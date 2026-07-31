@@ -133,6 +133,7 @@ export default function App() {
     disease: true,
     agents: true,
     fauna: true,
+    artifacts: true,
     vessels: true,
     colorMode: "country",
   });

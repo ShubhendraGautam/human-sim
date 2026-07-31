@@ -16,6 +16,7 @@ from src.simulation import (
     effective_health_capacity,
 )
 from src.simulation.engine import MODEL_VERSION, SNAPSHOT_SCHEMA_VERSION
+from src.simulation.entities import EntityKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +40,7 @@ class BackendFrame:
     # Animals are their own payload rather than more agent columns: they
     # are a different kind of thing and they come and go far faster.
     fauna: Mapping[str, object]
+    artifacts: Mapping[str, object]
     resources: Optional[Mapping[str, object]]
 
 
@@ -228,6 +230,34 @@ class PythonSimulationBackend:
             "energy": [animal.energy for animal in herd],
             "vigilance": [animal.vigilance for animal in herd],
         }
+        structures = sorted(
+            simulation.artifacts.values(),
+            key=lambda artifact: artifact.id,
+        )
+        person_cells = simulation.world.occupants_of_kind(EntityKind.PERSON)
+        artifacts = {
+            "id": [artifact.id for artifact in structures],
+            "x": [artifact.x for artifact in structures],
+            "y": [artifact.y for artifact in structures],
+            "durability": [artifact.durability for artifact in structures],
+            "insulation": [artifact.insulation for artifact in structures],
+            "storage_capacity": [
+                artifact.storage_capacity for artifact in structures
+            ],
+            "food_stored": [
+                artifact.food_stored for artifact in structures
+            ],
+            "occupancy_capacity": [
+                artifact.occupancy_capacity for artifact in structures
+            ],
+            "occupancy": [
+                len(person_cells.get(
+                    simulation.world.cell_index(artifact.x, artifact.y),
+                    (),
+                ))
+                for artifact in structures
+            ],
+        }
         resources: Optional[Mapping[str, object]] = None
         if include_resources:
             resources = {
@@ -240,6 +270,7 @@ class PythonSimulationBackend:
             metrics=_current_metrics(simulation),
             agents=agents,
             fauna=fauna,
+            artifacts=artifacts,
             resources=resources,
         )
 

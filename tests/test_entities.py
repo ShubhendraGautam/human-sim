@@ -150,7 +150,11 @@ class PopulationIsRegisteredTest(unittest.TestCase):
         # bucket and nothing has landed in the wrong one.
         self.assertEqual(
             len(simulation.entities),
-            len(simulation.agents) + len(simulation.fauna),
+            (
+                len(simulation.agents)
+                + len(simulation.fauna)
+                + len(simulation.artifacts)
+            ),
         )
 
     def test_people_are_registered_as_people(self) -> None:
@@ -172,7 +176,11 @@ class PopulationIsRegisteredTest(unittest.TestCase):
         self.assertGreater(simulation.total_deaths, 0)
         self.assertEqual(
             len(simulation.entities),
-            len(simulation.agents) + len(simulation.fauna),
+            (
+                len(simulation.agents)
+                + len(simulation.fauna)
+                + len(simulation.artifacts)
+            ),
         )
         # Every identity ever issued was issued once, to one thing.
         self.assertGreaterEqual(

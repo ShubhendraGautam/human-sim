@@ -29,6 +29,7 @@ import {
   seasonOf,
 } from "../lib/lod";
 import {
+  artifactSprite,
   drawScenery,
   faunaSprite,
   personSprite,
@@ -55,6 +56,7 @@ export interface CanvasLayerSettings {
   disease: boolean;
   agents: boolean;
   fauna: boolean;
+  artifacts: boolean;
   vessels: boolean;
   colorMode: AgentColorMode;
 }
@@ -656,6 +658,66 @@ export function WorldCanvas({
             patch,
             patch,
           );
+        }
+      }
+
+      // An inert object's glyph is a reading of its effects. High insulation
+      // makes a roof-like enclosure; stored food fills its base. There is no
+      // house/type field in the payload for the renderer to consult.
+      if (layers.artifacts && frame.artifacts !== undefined) {
+        const structures = frame.artifacts;
+        for (let index = 0; index < structures.id.length; index += 1) {
+          const worldX = structures.x[index] ?? 0;
+          const worldY = structures.y[index] ?? 0;
+          if (
+            worldX < bounds.startX || worldX >= bounds.endX ||
+            worldY < bounds.startY || worldY >= bounds.endY
+          ) {
+            continue;
+          }
+          const x = projection.originX + (worldX + 0.5) * cellScale;
+          const y = projection.originY + (worldY + 0.5) * cellScale;
+          const durability = clamp(
+            structures.durability[index] ?? 0,
+            0,
+            1,
+          );
+          if (detail === "sprite") {
+            const size = clamp(cellScale * 0.82, 12, 45);
+            const insulation = clamp(
+              structures.insulation[index] ?? 0,
+              0,
+              1,
+            );
+            const stored = clamp(
+              (structures.food_stored[index] ?? 0) /
+                Math.max(1, structures.storage_capacity[index] ?? 0),
+              0,
+              1,
+            );
+            const sprite = artifactSprite(
+              pixelRatio,
+              insulation,
+              stored,
+              (structures.occupancy[index] ?? 0) > 0,
+              durability,
+            );
+            if (sprite !== null) {
+              context.drawImage(
+                sprite,
+                x - size / 2,
+                y - size * 0.58,
+                size,
+                size,
+              );
+            }
+          } else {
+            const side = clamp(cellScale * 0.38, 1.4, 5);
+            context.globalAlpha = 0.45 + durability * 0.55;
+            context.fillStyle = "#c09361";
+            context.fillRect(x - side / 2, y - side / 2, side, side);
+            context.globalAlpha = 1;
+          }
         }
       }
 

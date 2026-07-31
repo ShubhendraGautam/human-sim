@@ -25,9 +25,9 @@ import type { Season } from "./lod";
  *
  * What may be drawn is limited to what the engine can measure. Foliage is a
  * reading of the food layer, rock of the material layer, and the season comes
- * from the same phase the engine grows food on. There is deliberately no
- * house: nothing in the simulation builds anything yet, and a dwelling glyph
- * would put a claim on the map the model cannot support.
+ * from the same phase the engine grows food on. An inert object's silhouette
+ * is likewise selected from insulation, storage, occupancy, and condition;
+ * the engine never supplies a house label.
  */
 
 export type SceneryName =
@@ -999,5 +999,53 @@ export function vesselSprite(pixelRatio: number): HTMLCanvasElement | null {
   context.fill();
 
   vesselCache.set(pixelRatio, canvas);
+  return canvas;
+}
+
+const artifactCache = new Map<string, HTMLCanvasElement>();
+
+/** A cached reading of an inert object's measurable physical effects. */
+export function artifactSprite(
+  pixelRatio: number,
+  insulation: number,
+  storedFraction: number,
+  occupied: boolean,
+  durability: number,
+): HTMLCanvasElement | null {
+  const roof = insulation >= 0.5;
+  const stored = storedFraction >= 0.25;
+  const worn = durability < 0.5;
+  const key = `${roof ? 1 : 0}${stored ? 1 : 0}${occupied ? 1 : 0}${worn ? 1 : 0}@${pixelRatio}`;
+  const cached = artifactCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const size = Math.round(TILE * pixelRatio);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    return null;
+  }
+  context.globalAlpha = worn ? 0.62 : 1;
+  shadow(context, size, 0.5, 0.86, 0.34);
+  context.fillStyle = stored ? "#8f6b3f" : "#67543d";
+  context.fillRect(0.2 * size, 0.48 * size, 0.6 * size, 0.36 * size);
+  if (roof) {
+    context.fillStyle = "#b88958";
+    context.beginPath();
+    context.moveTo(0.12 * size, 0.5 * size);
+    context.lineTo(0.5 * size, 0.16 * size);
+    context.lineTo(0.88 * size, 0.5 * size);
+    context.closePath();
+    context.fill();
+  }
+  if (occupied) {
+    context.fillStyle = "#f0c873";
+    context.fillRect(0.45 * size, 0.64 * size, 0.1 * size, 0.2 * size);
+  }
+  context.globalAlpha = 1;
+  artifactCache.set(key, canvas);
   return canvas;
 }

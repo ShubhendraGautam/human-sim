@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import Any, Dict
 
-CONFIG_SCHEMA_VERSION = 6
+CONFIG_SCHEMA_VERSION = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,10 +27,33 @@ class SimulationConfig:
     maximum_cell_fertility: float = 1.45
     seasonality_strength: float = 0.35
     seasonal_equator_fraction: float = 0.10
+    # Energy per year at one full unit of local seasonal departure. The
+    # season itself is already locally observable; charging for its absolute
+    # departure makes both hot and cold extremes physical rather than merely
+    # colors on the food-renewal layer. At zero the pre-exposure model is
+    # recovered exactly, including its arithmetic and random streams.
+    environmental_energy_cost_per_year: float = 8.0
     food_spoilage_rate_per_year: float = 0.08
     material_cell_capacity: float = 10.0
     material_regeneration: float = 0.04
     materials_renewable: bool = False
+
+    # Inert, material-built objects. Their properties are effects, never
+    # labels: insulation, food capacity, occupancy capacity, and condition.
+    # At false the legacy action-space width is retained, so the switch also
+    # reproduces pre-artifact neural genomes and random streams exactly.
+    artifacts_enabled: bool = True
+    artifact_material_cost: float = 6.0
+    artifact_energy_cost: float = 3.0
+    artifact_build_weight: float = 4.0
+    artifact_storage_weight: float = 0.35
+    artifact_insulation: float = 0.75
+    artifact_storage_capacity: float = 18.0
+    artifact_occupancy_capacity: int = 6
+    artifact_decay_rate_per_year: float = 0.08
+    artifact_maintenance_material_cost: float = 1.0
+    artifact_maintenance_energy_cost: float = 0.5
+    artifact_maintenance_restore: float = 0.30
 
     # Animals. They graze the same layer people harvest, so a herd is both
     # competition for food and food itself, and neither of those is written
@@ -379,6 +402,7 @@ class SimulationConfig:
             "vision_maximum",
             "interaction_radius",
             "vessel_passenger_capacity",
+            "artifact_occupancy_capacity",
             "maximum_social_neighbors",
             "maximum_social_bonds",
             "metrics_interval",
@@ -400,7 +424,7 @@ class SimulationConfig:
                      "neural_growth_enabled",
                      "language_enabled", "neural_brains_enabled",
                      "language_caregiver_transmission",
-                     "fauna_enabled"):
+                     "fauna_enabled", "artifacts_enabled"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
         for item in fields(self):
@@ -415,6 +439,7 @@ class SimulationConfig:
                     "neural_growth_enabled",
                     "language_caregiver_transmission",
                     "fauna_enabled",
+                    "artifacts_enabled",
                 )
                 and (
                     not isinstance(value, (int, float))
@@ -443,6 +468,8 @@ class SimulationConfig:
             "material_cell_capacity",
             "material_inventory_capacity",
             "material_harvest_amount",
+            "artifact_storage_capacity",
+            "artifact_occupancy_capacity",
             "fauna_forage_energy",
             "fauna_energy_maximum",
             "fauna_maximum_age",
@@ -478,6 +505,15 @@ class SimulationConfig:
             "material_regeneration",
             "seasonality_strength",
             "seasonal_equator_fraction",
+            "environmental_energy_cost_per_year",
+            "artifact_material_cost",
+            "artifact_energy_cost",
+            "artifact_build_weight",
+            "artifact_storage_weight",
+            "artifact_decay_rate_per_year",
+            "artifact_maintenance_material_cost",
+            "artifact_maintenance_energy_cost",
+            "artifact_maintenance_restore",
             "food_spoilage_rate_per_year",
             "initial_inventory",
             "starvation_damage",
@@ -594,6 +630,7 @@ class SimulationConfig:
             "early_maturation_lifespan_cost",
             "relationship_learning_rate",
             "relationship_preference_weight",
+            "artifact_insulation",
             "communication_weight",
             "communication_energy_cost",
             "neural_output_weight",

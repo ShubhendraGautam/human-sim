@@ -104,7 +104,7 @@ class ScenarioTests(unittest.TestCase):
         snapshot = simulation.snapshot()
 
         json.dumps(snapshot)
-        self.assertEqual(snapshot["schema_version"], 5)
+        self.assertEqual(snapshot["schema_version"], 7)
         self.assertEqual(snapshot["snapshot_kind"], "visualization")
         self.assertIn("config", snapshot)
         self.assertIn("config_schema_version", snapshot)

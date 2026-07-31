@@ -7,7 +7,9 @@ export type ExperimentMetric =
   | "mean_recurrent_magnitude"
   | "mean_brain_units"
   | "mean_plasticity"
-  | "mean_health_fraction";
+  | "mean_health_fraction"
+  | "mean_energy"
+  | "mean_body_condition";
 
 export interface ExperimentDefinition {
   id: string;
@@ -37,6 +39,16 @@ export interface ExperimentSummary {
 }
 
 export const EXPERIMENT_DEFINITIONS: ExperimentDefinition[] = [
+  {
+    id: "environmental-exposure",
+    name: "Environmental exposure",
+    question: "What does paying for local seasonal extremes change?",
+    controlLabel: "No exposure cost",
+    treatmentLabel: "Exposure cost 8",
+    control: { environmental_energy_cost_per_year: 0 },
+    treatment: { environmental_energy_cost_per_year: 8 },
+    suggestedMetric: "mean_body_condition",
+  },
   {
     id: "recurrence",
     name: "Recurrent memory",
@@ -106,6 +118,8 @@ export const EXPERIMENT_METRICS: {
   { id: "mean_brain_units", label: "Active brain units" },
   { id: "mean_plasticity", label: "Lifetime plasticity" },
   { id: "mean_health_fraction", label: "Health fraction" },
+  { id: "mean_energy", label: "Mean energy" },
+  { id: "mean_body_condition", label: "Body condition" },
 ];
 
 export function parseSeeds(input: string, maximum = 12): number[] {
@@ -160,7 +174,10 @@ export function formatExperimentValue(
   if (metric === "population") {
     return Math.round(value).toLocaleString();
   }
-  if (metric === "mean_health_fraction") {
+  if (
+    metric === "mean_health_fraction"
+    || metric === "mean_body_condition"
+  ) {
     return `${(value * 100).toFixed(1)}%`;
   }
   return Math.abs(value) < 0.01 ? value.toFixed(4) : value.toFixed(3);

@@ -15,11 +15,13 @@ from typing import (
 )
 
 from .brain import BrainState, Surroundings, choose_action
+from . import artifacts as artifact_module
 from . import fauna as fauna_module
 from . import language
 from . import neural
 from .config import SimulationConfig
 from .entities import EntityKind, EntityRegistry
+from .exposure import exposure_energy_cost
 from . import knowledge
 from .genetics import (
     Gene,
@@ -83,6 +85,14 @@ class Simulation:
         self.config = config or SimulationConfig()
         self.seed = seed
         self.rng = random.Random(seed)
+        # BUILD_ARTIFACT is appended to the action enum. A disabled run keeps
+        # the previous output width, so adding the mechanism does not add a
+        # neural weight, a founder RNG draw, or a lifetime preference.
+        self._action_outputs = (
+            len(ActionKind)
+            if self.config.artifacts_enabled
+            else len(ActionKind) - 1
+        )
         # Built once and handed to the two brain factories. None is the off
         # switch, and with it every brain is issued at full size at birth
         # exactly as it was before brains could grow.
@@ -127,6 +137,16 @@ class Simulation:
         self.fauna: Dict[int, fauna_module.Animal] = self.entities.of_kind(
             EntityKind.FAUNA
         )
+        self.artifacts: Dict[int, artifact_module.Artifact] = (
+            self.entities.of_kind(EntityKind.ARTIFACT)
+        )
+        self.total_artifacts_built = 0
+        self.total_artifacts_decayed = 0
+        self.total_artifact_maintenance = 0
+        self._artifacts_built_this_tick: Dict[
+            int,
+            artifact_module.Artifact,
+        ] = {}
         self.total_hunts = 0
         self.total_hunt_kills = 0
         self._last_meat_gained = 0.0
@@ -145,6 +165,8 @@ class Simulation:
         self._last_food_lost_on_death = 0.0
         self._last_material_consumed = 0.0
         self._last_material_lost_on_death = 0.0
+        self._last_environmental_energy_cost = 0.0
+        self._last_food_lost_on_artifact_decay = 0.0
         self.pregnancies: Dict[int, Pregnancy] = {}
         self.dependents_by_guardian: Dict[int, set[int]] = {}
         self.relationships = RelationshipStore(
@@ -200,6 +222,10 @@ class Simulation:
         self._last_material_consumed = 0.0
         self._last_material_lost_on_death = 0.0
         self._last_meat_gained = 0.0
+        self._last_environmental_energy_cost = 0.0
+        self._last_food_lost_on_artifact_decay = 0.0
+        self._artifacts_built_this_tick.clear()
+        self._advance_artifacts()
         # Disease and metabolism observe the same agent set, so they share one
         # deterministic ordering instead of sorting the population twice.
         ordered_agents = self._ordered_agents()
@@ -353,6 +379,24 @@ class Simulation:
             )
             else None
         )
+        network = neural.founder_network(
+            self.rng,
+            config.neural_hidden_units,
+            len(ActionKind) - 1,
+            config.neural_founder_scale
+            if config.neural_brains_enabled
+            else 0.0,
+            self._growth_rules,
+            recurrent_rng,
+        )
+        if config.artifacts_enabled:
+            neural.append_output(
+                network,
+                random.Random(self._mixed_seed(agent_id, 0xA471)),
+                config.neural_founder_scale
+                if config.neural_brains_enabled
+                else 0.0,
+            )
         agent = Agent(
             id=agent_id,
             x=x,
@@ -365,18 +409,11 @@ class Simulation:
             genome=genome,
             traits=traits,
             culture=culture,
-            brain=BrainState(),
-            lexicon=language.Lexicon(),
-            network=neural.founder_network(
-                self.rng,
-                config.neural_hidden_units,
-                len(ActionKind),
-                config.neural_founder_scale
-                if config.neural_brains_enabled
-                else 0.0,
-                self._growth_rules,
-                recurrent_rng,
+            brain=BrainState(
+                preferences=array("f", [0.0]) * self._action_outputs,
             ),
+            lexicon=language.Lexicon(),
+            network=network,
             reproductive_role=self.rng.choice(tuple(ReproductiveRole)),
             birth_country_id=country.id,
             belief_id=self.scenario.belief_id_for(country),
@@ -674,6 +711,7 @@ class Simulation:
             -config.food_spoilage_rate_per_year * elapsed_years
         )
         brain_upkeep = config.neural_maintenance_cost * tick_scale
+        exposure_cost = config.environmental_energy_cost_per_year
         growing = self._growth_rules is not None
         deaths: List[Tuple[int, str]] = []
         if ordered_agents is None:
@@ -719,6 +757,26 @@ class Simulation:
                 0.0,
                 agent.energy - metabolism,
             )
+
+            # Season used to decide only what grew. It now also costs a body
+            # standing in the local extreme: both sides of the annual midpoint
+            # require thermoregulation. The formula accepts insulation as a
+            # physical input so artifacts can reduce this cost later without
+            # either module learning a label such as "house".
+            #
+            # The guard is the exact off switch. At zero no season lookup,
+            # helper call, subtraction, or extra random draw occurs, so old
+            # digests remain byte-for-byte reproducible.
+            if exposure_cost > 0.0:
+                requested = exposure_energy_cost(
+                    self.world.season_at(agent.y),
+                    exposure_cost,
+                    elapsed_years,
+                    self._insulation_at(agent.x, agent.y),
+                )
+                paid = min(requested, agent.energy)
+                agent.energy -= paid
+                self._last_environmental_energy_cost += paid
 
             # A brain built over a life rather than issued at birth. The
             # units come online as the person ages, at a rate they inherited,
@@ -961,6 +1019,9 @@ class Simulation:
         )
         current_resource = self.world.resource_at(agent.x, agent.y)
         current_material = self.world.material_at(agent.x, agent.y)
+        local_artifacts = self._artifacts_at(agent.x, agent.y)
+        stored_food = sum(item.food_stored for item in local_artifacts)
+        storage_room = sum(item.storage_room for item in local_artifacts)
         cell_capacity = self.world.capacity[
             self.world.cell_index(agent.x, agent.y)
         ]
@@ -1007,7 +1068,10 @@ class Simulation:
             )
         ]
 
-        if agent.inventory > 0.0 and agent.energy < config.maximum_energy:
+        if (
+            (agent.inventory > 0.0 or stored_food > 0.0)
+            and agent.energy < config.maximum_energy
+        ):
             options.append(
                 (
                     config.hunger_weight * max(hunger, 0.0)
@@ -1029,7 +1093,10 @@ class Simulation:
 
         if (
             current_resource > 0.0
-            and agent.inventory < config.inventory_capacity
+            and (
+                agent.inventory < config.inventory_capacity
+                or storage_room > 0.0
+            )
         ):
             gather_utility = config.gather_weight * (
                 config.gather_inventory_emphasis
@@ -1284,6 +1351,59 @@ class Simulation:
                     Action(ActionKind.BUILD_VESSEL, agent.id),
                 )
             )
+
+        if (
+            config.artifacts_enabled
+            and (
+                not local_artifacts
+                or any(item.durability < 1.0 for item in local_artifacts)
+            )
+            and agent.material_inventory
+            >= (
+                config.artifact_maintenance_material_cost
+                if local_artifacts
+                else config.artifact_material_cost
+            )
+            and agent.energy
+            >= (
+                config.artifact_maintenance_energy_cost
+                if local_artifacts
+                else config.artifact_energy_cost
+            )
+            and not self.world.is_sea(agent.x, agent.y)
+        ):
+            insulation = self._insulation_at(agent.x, agent.y)
+            exposure_need = abs(surroundings.season) * (1.0 - insulation)
+            storage_need = (
+                1.0
+                if not local_artifacts
+                else max(
+                    0.0,
+                    1.0
+                    - sum(item.food_stored for item in local_artifacts)
+                    / max(
+                        sum(
+                            item.storage_capacity
+                            for item in local_artifacts
+                        ),
+                        1e-9,
+                    ),
+                )
+            )
+            repair_need = max(
+                (1.0 - item.durability for item in local_artifacts),
+                default=0.0,
+            )
+            utility = config.artifact_build_weight * (
+                exposure_need
+                + config.artifact_storage_weight * storage_need
+                + repair_need
+            )
+            options.append((
+                utility
+                + (random_value() * 2.0 - 1.0) * noise_amplitude,
+                Action(ActionKind.BUILD_ARTIFACT, agent.id),
+            ))
 
         # Anything worth working out here, rather than one named thing at
         # one named kind of place.
@@ -1943,6 +2063,8 @@ class Simulation:
                 applied = self._teach(agent, action.target_id)
             elif action.kind is ActionKind.BUILD_VESSEL:
                 applied = self._build_vessel(agent)
+            elif action.kind is ActionKind.BUILD_ARTIFACT:
+                applied = self._build_or_maintain_artifact(agent)
             elif action.kind is ActionKind.REPRODUCE:
                 applied = reproduction_results.get(agent.id, False)
                 partner_id = reproduction_partners.get(agent.id)
@@ -2069,20 +2191,29 @@ class Simulation:
         return 0.0
 
     def _eat(self, agent: Agent) -> bool:
-        amount = min(agent.inventory, self.config.eat_amount)
-        if amount <= 0.0:
-            return False
         energy_room = (
             self.config.maximum_energy - agent.energy
         ) / self.config.food_energy
-        amount = min(amount, max(energy_room, 0.0))
+        amount = min(self.config.eat_amount, max(energy_room, 0.0))
         if amount <= 0.0:
             return False
-        agent.inventory -= amount
-        self._last_food_consumed += amount
+        from_inventory = min(agent.inventory, amount)
+        agent.inventory -= from_inventory
+        consumed = from_inventory
+        remaining = amount - from_inventory
+        if remaining > 0.0:
+            for artifact in self._artifacts_at(agent.x, agent.y):
+                taken = artifact.take_food(remaining)
+                consumed += taken
+                remaining -= taken
+                if remaining <= 0.0:
+                    break
+        if consumed <= 0.0:
+            return False
+        self._last_food_consumed += consumed
         agent.energy = min(
             self.config.maximum_energy,
-            agent.energy + amount * self.config.food_energy,
+            agent.energy + consumed * self.config.food_energy,
         )
         return True
 
@@ -2094,16 +2225,29 @@ class Simulation:
             + self.config.development_harvest_influence
             * agent.development_index
         )
+        personal_room = self.config.inventory_capacity - agent.inventory
+        storage_room = sum(
+            artifact.storage_room
+            for artifact in self._artifacts_at(agent.x, agent.y)
+        )
         requested = min(
             self.config.harvest_amount
             * agent.traits.harvest_skill
             * capability
             * developed_capacity
             * knowledge.harvest_multiplier(agent.known_techniques),
-            self.config.inventory_capacity - agent.inventory,
+            personal_room + storage_room,
         )
         amount = self.world.harvest(agent.x, agent.y, requested)
-        agent.inventory += amount
+        held = min(amount, personal_room)
+        agent.inventory += held
+        remaining = amount - held
+        if remaining > 0.0:
+            for artifact in self._artifacts_at(agent.x, agent.y):
+                stored = artifact.store(remaining)
+                remaining -= stored
+                if remaining <= 0.0:
+                    break
         if amount > 0.0:
             # What this place was worth, judged by how full it still is
             # rather than by what was taken: a rich cell stays worth coming
@@ -2154,6 +2298,66 @@ class Simulation:
         if agent.places is None:
             agent.places = PlaceMemory()
         agent.places.remember(cell, quality, self.tick, capacity)
+
+    def _artifacts_at(
+        self,
+        x: int,
+        y: int,
+    ) -> Tuple["artifact_module.Artifact", ...]:
+        """Live inert objects in this cell, in identity order."""
+
+        if not self.artifacts:
+            return ()
+        cell = self.world.try_cell_index(x, y)
+        if cell is None:
+            return ()
+        ids = self.world.occupants_of_kind(EntityKind.ARTIFACT).get(cell, ())
+        return tuple(
+            artifact
+            for entity_id in ids
+            if (artifact := self.artifacts.get(entity_id)) is not None
+        )
+
+    def _insulation_at(self, x: int, y: int) -> float:
+        artifacts = self._artifacts_at(x, y)
+        if not artifacts:
+            return 0.0
+        cell = self.world.cell_index(x, y)
+        occupants = len(
+            self.world.occupants_of_kind(EntityKind.PERSON).get(cell, ())
+        )
+        return artifact_module.effective_insulation(artifacts, occupants)
+
+    def _advance_artifacts(self) -> None:
+        """Decay inert objects and spoil the food physically held in them."""
+
+        if not self.artifacts:
+            return
+        elapsed_years = 1.0 / self.config.ticks_per_year
+        retention = math.exp(
+            -self.config.food_spoilage_rate_per_year * elapsed_years
+        )
+        decay = self.config.artifact_decay_rate_per_year * elapsed_years
+        # Registration is monotonic by entity id, so dict insertion order is
+        # already identity order. Deregistration never disturbs the survivors.
+        for artifact in tuple(self.artifacts.values()):
+            if artifact.food_stored > 0.0:
+                before = artifact.food_stored
+                artifact.food_stored *= retention
+                self._last_food_spoiled += before - artifact.food_stored
+            if decay <= 0.0:
+                continue
+            artifact.durability = max(0.0, artifact.durability - decay)
+            if artifact.durability > 0.0:
+                continue
+            self._last_food_lost_on_artifact_decay += artifact.food_stored
+            self.entities.deregister(artifact.id)
+            self.total_artifacts_decayed += 1
+            self._record(Event(
+                self.tick,
+                "artifact_decayed",
+                (artifact.id,),
+            ))
 
     def _nearest_quarry(
         self,
@@ -2601,6 +2805,87 @@ class Simulation:
         agent.energy -= config.vessel_energy_cost
         agent.vessel_durability = config.vessel_durability
         self._record(Event(self.tick, "build_vessel", (agent.id,)))
+        return True
+
+    def _build_or_maintain_artifact(self, agent: Agent) -> bool:
+        """Build here, or repair the most damaged local inert object."""
+
+        config = self.config
+        if not config.artifacts_enabled or self.world.is_sea(agent.x, agent.y):
+            return False
+        cell = self.world.cell_index(agent.x, agent.y)
+        local = self._artifacts_at(agent.x, agent.y)
+        # Resolution must see an object built earlier in this same action
+        # phase; the spatial index is intentionally rebuilt only at phase
+        # boundaries. One cell-local entry closes that gap without scanning
+        # every object in the world for every attempted build.
+        just_built = self._artifacts_built_this_tick.get(cell)
+        if just_built is not None and just_built not in local:
+            local = local + (just_built,)
+        repairable = [
+            artifact for artifact in local if artifact.durability < 1.0
+        ]
+        if repairable:
+            target = min(
+                repairable,
+                key=lambda item: (item.durability, item.id),
+            )
+            if (
+                agent.material_inventory
+                < config.artifact_maintenance_material_cost
+                or agent.energy < config.artifact_maintenance_energy_cost
+            ):
+                return False
+            agent.material_inventory -= (
+                config.artifact_maintenance_material_cost
+            )
+            self._last_material_consumed += (
+                config.artifact_maintenance_material_cost
+            )
+            agent.energy -= config.artifact_maintenance_energy_cost
+            target.durability = min(
+                1.0,
+                target.durability + config.artifact_maintenance_restore,
+            )
+            self.total_artifact_maintenance += 1
+            self._record(Event(
+                self.tick,
+                "artifact_maintained",
+                (agent.id, target.id),
+            ))
+            return True
+        if local:
+            return False
+        if (
+            agent.material_inventory < config.artifact_material_cost
+            or agent.energy < config.artifact_energy_cost
+        ):
+            return False
+        artifact = artifact_module.Artifact(
+            id=self.entities.claim_id(),
+            x=agent.x,
+            y=agent.y,
+            durability=1.0,
+            insulation=config.artifact_insulation,
+            storage_capacity=config.artifact_storage_capacity,
+            occupancy_capacity=config.artifact_occupancy_capacity,
+        )
+        agent.material_inventory -= config.artifact_material_cost
+        self._last_material_consumed += config.artifact_material_cost
+        agent.energy -= config.artifact_energy_cost
+        self.entities.register(artifact, created_by=agent.id)
+        self._artifacts_built_this_tick[cell] = artifact
+        self.total_artifacts_built += 1
+        self._record(Event(
+            self.tick,
+            "artifact_built",
+            (agent.id, artifact.id),
+            (
+                ("insulation", artifact.insulation),
+                ("storage_capacity", artifact.storage_capacity),
+                ("occupancy_capacity", float(artifact.occupancy_capacity)),
+            ),
+        ))
         return True
 
     def _share(self, agent: Agent, target_id: Optional[int]) -> bool:
@@ -3092,7 +3377,7 @@ class Simulation:
                 if self.config.neural_brains_enabled
                 else neural.Network(
                     self.config.neural_hidden_units,
-                    len(ActionKind),
+                    self._action_outputs,
                 )
             ),
             conception_tick=self.tick,
@@ -3223,7 +3508,9 @@ class Simulation:
             genome=pregnancy.genome,
             traits=traits,
             culture=pregnancy.culture,
-            brain=BrainState(),
+            brain=BrainState(
+                preferences=array("f", [0.0]) * self._action_outputs,
+            ),
             lexicon=language.Lexicon(),
             network=pregnancy.network,
             reproductive_role=pregnancy.reproductive_role,

@@ -389,6 +389,28 @@ def _fill_recurrent(
             network.recurrent[target][source] = rng.gauss(0.0, scale)
 
 
+def append_output(
+    network: Network,
+    rng: random.Random,
+    scale: float,
+) -> None:
+    """Append one action disposition without perturbing founder biology.
+
+    New action mechanisms use a keyed stream for their new row. The existing
+    network is first built at its historical width from the main run stream,
+    so enabling the action does not silently give the treatment different
+    bodies, locations, roles, or legacy action weights.
+    """
+
+    row = [0.0] * network.units
+    if scale > 0.0:
+        for unit in range(network.units):
+            row[unit] = rng.gauss(0.0, scale)
+    network.output.append(row)
+    network.outputs += 1
+    network.refresh_magnitude()
+
+
 def inherit(
     first: Network,
     second: Network,

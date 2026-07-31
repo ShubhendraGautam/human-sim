@@ -46,6 +46,7 @@ class ActionKind(str, Enum):
     CARE = "care"
     COMMUNICATE = "communicate"
     REST = "rest"
+    BUILD_ARTIFACT = "build_artifact"
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,11 +256,22 @@ class Metrics:
     food_consumed: float
     food_spoiled: float
     food_lost_on_death: float
+    food_lost_on_artifact_decay: float
     material_harvested: float
     material_regenerated: float
     material_consumed: float
     material_lost_on_death: float
     seasonal_productivity: float
+    mean_environmental_exposure: float
+    environmental_energy_cost: float
+    artifact_count: int
+    artifact_mean_durability: float
+    artifact_storage_capacity: float
+    artifact_food_stored: float
+    sheltered_population: int
+    artifacts_built: int
+    artifacts_decayed: int
+    artifact_maintenance: int
     seafaring_population: int
     vessels: int
     inventions: int
@@ -341,11 +353,26 @@ class Metrics:
             "food_consumed": self.food_consumed,
             "food_spoiled": self.food_spoiled,
             "food_lost_on_death": self.food_lost_on_death,
+            "food_lost_on_artifact_decay": (
+                self.food_lost_on_artifact_decay
+            ),
             "material_harvested": self.material_harvested,
             "material_regenerated": self.material_regenerated,
             "material_consumed": self.material_consumed,
             "material_lost_on_death": self.material_lost_on_death,
             "seasonal_productivity": self.seasonal_productivity,
+            "mean_environmental_exposure": (
+                self.mean_environmental_exposure
+            ),
+            "environmental_energy_cost": self.environmental_energy_cost,
+            "artifact_count": self.artifact_count,
+            "artifact_mean_durability": self.artifact_mean_durability,
+            "artifact_storage_capacity": self.artifact_storage_capacity,
+            "artifact_food_stored": self.artifact_food_stored,
+            "sheltered_population": self.sheltered_population,
+            "artifacts_built": self.artifacts_built,
+            "artifacts_decayed": self.artifacts_decayed,
+            "artifact_maintenance": self.artifact_maintenance,
             "seafaring_population": self.seafaring_population,
             "vessels": self.vessels,
             "inventions": self.inventions,

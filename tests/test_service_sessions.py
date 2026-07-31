@@ -82,6 +82,12 @@ class RecordingBackend:
             },
             fauna={"id": [], "x": [], "y": [], "energy": [],
                    "vigilance": []},
+            artifacts={
+                "id": [], "x": [], "y": [], "durability": [],
+                "insulation": [], "storage_capacity": [],
+                "food_stored": [], "occupancy_capacity": [],
+                "occupancy": [],
+            },
             resources=resources,
         )
 

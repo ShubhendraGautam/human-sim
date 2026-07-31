@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Sequence, Set, Tuple
 from . import knowledge
 from . import language
 from . import neural
+from .artifacts import Artifact
 from .config import CONFIG_SCHEMA_VERSION
 from .entities import INERT_KINDS, EntityKind
+from .exposure import seasonal_exposure
 from .genetics import GENOME_SCHEMA_VERSION, LOCUS_COUNT
 from .health import InfectionStage
 from .models import ActionKind, Agent, Metrics, ReproductiveRole
@@ -211,8 +213,27 @@ def measure(simulation: "Simulation") -> Metrics:
 
     total_capacity = sum(simulation.world.capacity)
     total_resources = simulation.world.total_resources()
+    artifacts = tuple(simulation.artifacts.values())
+    artifact_food_stored = sum(
+        artifact.food_stored for artifact in artifacts
+    )
+    artifact_storage_capacity = sum(
+        artifact.storage_capacity for artifact in artifacts
+    )
+    sheltered_population = sum(
+        simulation._insulation_at(agent.x, agent.y) > 0.0
+        for agent in agents
+    )
     resource_fraction = (
         total_resources / total_capacity if total_capacity else 0.0
+    )
+    mean_environmental_exposure = (
+        fmean(
+            seasonal_exposure(simulation.world.season_at(agent.y))
+            for agent in agents
+        )
+        if agents
+        else 0.0
     )
 
     return Metrics(
@@ -242,13 +263,16 @@ def measure(simulation: "Simulation") -> Metrics:
         food_per_capita=(
             total_resources / population if population else 0.0
         ),
-        total_food_inventory=total_food_inventory,
+        total_food_inventory=total_food_inventory + artifact_food_stored,
         total_material_inventory=total_material_inventory,
         food_harvested=simulation.world.last_food_harvested,
         food_regenerated=simulation.world.last_food_regenerated,
         food_consumed=simulation._last_food_consumed,
         food_spoiled=simulation._last_food_spoiled,
         food_lost_on_death=simulation._last_food_lost_on_death,
+        food_lost_on_artifact_decay=(
+            simulation._last_food_lost_on_artifact_decay
+        ),
         material_harvested=simulation.world.last_material_harvested,
         material_regenerated=simulation.world.last_material_regenerated,
         material_consumed=simulation._last_material_consumed,
@@ -256,6 +280,22 @@ def measure(simulation: "Simulation") -> Metrics:
             simulation._last_material_lost_on_death
         ),
         seasonal_productivity=simulation.world.last_seasonal_productivity,
+        mean_environmental_exposure=mean_environmental_exposure,
+        environmental_energy_cost=(
+            simulation._last_environmental_energy_cost
+        ),
+        artifact_count=len(artifacts),
+        artifact_mean_durability=(
+            fmean(item.durability for item in artifacts)
+            if artifacts
+            else 0.0
+        ),
+        artifact_storage_capacity=artifact_storage_capacity,
+        artifact_food_stored=artifact_food_stored,
+        sheltered_population=sheltered_population,
+        artifacts_built=simulation.total_artifacts_built,
+        artifacts_decayed=simulation.total_artifacts_decayed,
+        artifact_maintenance=simulation.total_artifact_maintenance,
         seafaring_population=seafaring_population,
         vessels=vessels,
         inventions=simulation.total_inventions,
@@ -520,6 +560,23 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
     )
     resources = tuple(round(value, 8) for value in simulation.world.resources)
     materials = tuple(round(value, 8) for value in simulation.world.materials)
+    artifacts = tuple(
+        (
+            artifact.id,
+            artifact.x,
+            artifact.y,
+            round(artifact.durability, 8),
+            round(artifact.insulation, 8),
+            round(artifact.storage_capacity, 8),
+            artifact.occupancy_capacity,
+            round(artifact.food_stored, 8),
+            simulation.entities.creator_of(artifact.id),
+        )
+        for artifact in sorted(
+            simulation.artifacts.values(),
+            key=lambda item: item.id,
+        )
+    )
     return (
         simulation.tick,
         simulation.total_births,
@@ -532,6 +589,7 @@ def state_digest(simulation: "Simulation") -> Tuple[object, ...]:
         simulation.total_recoveries,
         tuple(sorted(simulation.deaths_by_cause.items())),
         agents,
+        *((artifacts,) if simulation.config.artifacts_enabled else ()),
         resources,
         materials,
         tuple(sorted(
@@ -638,6 +696,36 @@ def snapshot(
         "age": [animal.age for animal in fauna_ordered],
         "energy": [animal.energy for animal in fauna_ordered],
         "vigilance": [animal.vigilance for animal in fauna_ordered],
+    }
+    artifact_ordered = sorted(
+        simulation.artifacts.values(),
+        key=lambda item: item.id,
+    )
+    person_cells = simulation.world.occupants_of_kind(EntityKind.PERSON)
+    result["artifacts"] = {
+        "id": [item.id for item in artifact_ordered],
+        "x": [item.x for item in artifact_ordered],
+        "y": [item.y for item in artifact_ordered],
+        "durability": [item.durability for item in artifact_ordered],
+        "insulation": [item.insulation for item in artifact_ordered],
+        "storage_capacity": [
+            item.storage_capacity for item in artifact_ordered
+        ],
+        "food_stored": [item.food_stored for item in artifact_ordered],
+        "occupancy_capacity": [
+            item.occupancy_capacity for item in artifact_ordered
+        ],
+        "occupancy": [
+            len(person_cells.get(
+                simulation.world.cell_index(item.x, item.y),
+                (),
+            ))
+            for item in artifact_ordered
+        ],
+        "creator_id": [
+            simulation.entities.creator_of(item.id)
+            for item in artifact_ordered
+        ],
     }
     if include_world:
         result["world"] = {
@@ -953,14 +1041,19 @@ def validate_state(simulation: "Simulation") -> None:
             assert agent.infection_ticks_remaining == 0
         else:
             assert agent.infection_ticks_remaining > 0
-        assert len(agent.brain.preferences) == len(ActionKind)
+        action_outputs = (
+            len(ActionKind)
+            if config.artifacts_enabled
+            else len(ActionKind) - 1
+        )
+        assert len(agent.brain.preferences) == action_outputs
         assert 0 <= agent.network.active <= agent.network.units
         assert len(agent.network.hidden) == agent.network.units
         assert all(
             len(row) == len(neural.SENSE_NAMES)
             for row in agent.network.hidden
         )
-        assert len(agent.network.output) == len(ActionKind)
+        assert len(agent.network.output) == action_outputs
         assert all(
             len(row) == agent.network.units
             for row in agent.network.output
@@ -982,7 +1075,7 @@ def validate_state(simulation: "Simulation") -> None:
                 for value in agent.brain.last_activations
             )
         if agent.brain.plastic is not None:
-            assert len(agent.brain.plastic) == len(ActionKind)
+            assert len(agent.brain.plastic) == action_outputs
             assert all(
                 len(row) == agent.network.units
                 for row in agent.brain.plastic
@@ -1038,6 +1131,17 @@ def validate_state(simulation: "Simulation") -> None:
         assert all(item.other_id != agent.id for item in relationships)
     assert expected_dependents == simulation.dependents_by_guardian
     assert len(relationship_slots) == len(simulation.relationships)
+    assert simulation.artifacts is simulation.entities.of_kind(
+        EntityKind.ARTIFACT
+    )
+    for artifact in simulation.artifacts.values():
+        if not isinstance(artifact, Artifact):
+            continue
+        assert 0.0 < artifact.durability <= 1.0
+        assert 0.0 <= artifact.insulation <= 1.0
+        assert artifact.storage_capacity > 0.0
+        assert 0.0 <= artifact.food_stored <= artifact.storage_capacity
+        assert artifact.occupancy_capacity > 0
     for parent_id, pregnancy in simulation.pregnancies.items():
         assert parent_id in simulation.agents
         assert pregnancy.gestational_parent_id == parent_id

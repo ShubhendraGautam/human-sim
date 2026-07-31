@@ -24,6 +24,7 @@ from typing import (
     Tuple,
 )
 
+from . import artifacts
 from . import fauna
 from .brain import BrainState
 from .config import CONFIG_SCHEMA_VERSION, SimulationConfig
@@ -107,6 +108,13 @@ def export_checkpoint(simulation: "Simulation") -> Dict[str, object]:
             ],
             "fauna": [
                 asdict(animal) for animal in simulation.fauna.values()
+            ],
+            "artifacts": [
+                {
+                    **asdict(artifact),
+                    "created_by": simulation.entities.creator_of(artifact.id),
+                }
+                for artifact in simulation.artifacts.values()
             ],
             "pregnancies": [
                 _pregnancy_to_data(parent_id, pregnancy)
@@ -231,6 +239,17 @@ def _restore_state(
     for value in _sequence(state.get("fauna"), "state.fauna"):
         registry.register(
             fauna.Animal(**dict(_mapping(value, "state.fauna[]")))
+        )
+    simulation.artifacts = registry.of_kind(EntityKind.ARTIFACT)
+    for value in _sequence(state.get("artifacts"), "state.artifacts"):
+        data = dict(_mapping(value, "state.artifacts[]"))
+        created_by = _integer(
+            data.pop("created_by", None),
+            "artifact.created_by",
+        )
+        registry.register(
+            artifacts.Artifact(**data),
+            created_by=created_by,
         )
 
     simulation.pregnancies = {}
@@ -758,11 +777,16 @@ _COUNTER_FIELDS = (
     "total_infections",
     "total_coinages",
     "total_recoveries",
+    "total_artifacts_built",
+    "total_artifacts_decayed",
+    "total_artifact_maintenance",
     "_last_food_consumed",
     "_last_food_spoiled",
     "_last_food_lost_on_death",
     "_last_material_consumed",
     "_last_material_lost_on_death",
+    "_last_environmental_energy_cost",
+    "_last_food_lost_on_artifact_decay",
 )
 
 

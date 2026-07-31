@@ -14,9 +14,9 @@ PROTOCOL_VERSION = 1
 #: and at what pace. A client that reattaches to a run it did not start has
 #: no other way to know the world is still moving.
 MANIFEST_SCHEMA_VERSION = 2
-#: 2 adds the ``fauna`` columns. The backend has always produced them; the
-#: frame projection dropped them, so no renderer could draw an animal.
-FRAME_SCHEMA_VERSION = 2
+#: 4 adds artifact columns. Version 3 added environmental exposure and
+#: energy-cost metrics; version 2 added fauna.
+FRAME_SCHEMA_VERSION = 4
 AGENT_DETAIL_SCHEMA_VERSION = 2
 EVENT_FEED_SCHEMA_VERSION = 1
 
@@ -131,6 +131,7 @@ class RenderFrame:
     # Animals are their own payload rather than more agent columns: they are a
     # different kind of thing, with none of a person's state.
     fauna: Optional[Mapping[str, object]] = None
+    artifacts: Optional[Mapping[str, object]] = None
     resources: Optional[Mapping[str, object]] = None
 
     def __post_init__(self) -> None:
@@ -155,6 +156,11 @@ class RenderFrame:
                 _empty_fauna()
                 if self.fauna is None
                 else _copy_mapping(self.fauna)
+            ),
+            "artifacts": (
+                _empty_artifacts()
+                if self.artifacts is None
+                else _copy_mapping(self.artifacts)
             ),
         }
         if self.resources is not None:
@@ -227,6 +233,17 @@ class EventFeed:
 #: The columns a fauna payload always carries, so a reader can index them
 #: without checking which ones arrived.
 FAUNA_COLUMNS = ("id", "x", "y", "energy", "vigilance")
+ARTIFACT_COLUMNS = (
+    "id",
+    "x",
+    "y",
+    "durability",
+    "insulation",
+    "storage_capacity",
+    "food_stored",
+    "occupancy_capacity",
+    "occupancy",
+)
 
 
 def _idle_playback() -> Dict[str, object]:
@@ -242,6 +259,10 @@ def _idle_playback() -> Dict[str, object]:
 
 def _empty_fauna() -> Dict[str, object]:
     return {name: [] for name in FAUNA_COLUMNS}
+
+
+def _empty_artifacts() -> Dict[str, object]:
+    return {name: [] for name in ARTIFACT_COLUMNS}
 
 
 def _validate_envelope(run_id: str, sequence: int, status: str) -> None:

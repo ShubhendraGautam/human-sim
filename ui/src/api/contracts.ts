@@ -25,8 +25,8 @@ export const PROTOCOL_VERSION = 1 as const;
 export const READABLE_SCHEMA_VERSIONS = {
   /** 2 carries `playback`: whether the engine is advancing this run itself. */
   run_manifest: [2, 1],
-  /** 2 carries the fauna columns; 1 has no animals in it. */
-  render_frame: [2, 1],
+  /** 4 carries artifacts; 3 added environmental metrics; 2 added fauna. */
+  render_frame: [4, 3, 2, 1],
   /** 2 carries the biography of the dead; 1 has living agents only. */
   agent_detail: [2, 1],
   event_feed: [1],
@@ -37,7 +37,7 @@ export type MessageKind = keyof typeof READABLE_SCHEMA_VERSIONS;
 /** What this renderer emits when it fabricates a message of its own. */
 export const SCHEMA_VERSION = {
   run_manifest: 2,
-  render_frame: 2,
+  render_frame: 4,
   agent_detail: 2,
   event_feed: 1,
 } as const satisfies Record<MessageKind, number>;
@@ -209,6 +209,19 @@ export interface FaunaColumns {
   vigilance: number[];
 }
 
+/** Inert objects, described by effects rather than engine-side type labels. */
+export interface ArtifactColumns {
+  id: number[];
+  x: number[];
+  y: number[];
+  durability: number[];
+  insulation: number[];
+  storage_capacity: number[];
+  food_stored: number[];
+  occupancy_capacity: number[];
+  occupancy: number[];
+}
+
 export interface ResourceLayers {
   food: number[];
   materials: number[];
@@ -245,11 +258,22 @@ export interface SimulationMetrics {
   food_consumed: number;
   food_spoiled: number;
   food_lost_on_death: number;
+  food_lost_on_artifact_decay: number;
   material_harvested: number;
   material_regenerated: number;
   material_consumed: number;
   material_lost_on_death: number;
   seasonal_productivity: number;
+  mean_environmental_exposure: number;
+  environmental_energy_cost: number;
+  artifact_count: number;
+  artifact_mean_durability: number;
+  artifact_storage_capacity: number;
+  artifact_food_stored: number;
+  sheltered_population: number;
+  artifacts_built: number;
+  artifacts_decayed: number;
+  artifact_maintenance: number;
   seafaring_population: number;
   vessels: number;
   inventions: number;
@@ -312,6 +336,8 @@ export interface RunFrame extends ProtocolEnvelope {
   agents: AgentColumns;
   /** Absent from a schema 1 frame, which had no animals in it. */
   fauna?: FaunaColumns;
+  /** Absent before render-frame schema 4. */
+  artifacts?: ArtifactColumns;
   resources?: ResourceLayers;
 }
 
@@ -549,6 +575,16 @@ export function assertFrameColumns(frame: RunFrame): void {
       if (values.length !== herd) {
         throw new Error(
           `Invalid render frame: fauna.${name} has ${values.length} values; expected ${herd}.`,
+        );
+      }
+    }
+  }
+  if (frame.artifacts !== undefined) {
+    const count = frame.artifacts.id.length;
+    for (const [name, values] of Object.entries(frame.artifacts)) {
+      if (values.length !== count) {
+        throw new Error(
+          `Invalid render frame: artifacts.${name} has ${values.length} values; expected ${count}.`,
         );
       }
     }
